@@ -231,5 +231,105 @@ void main() {
       // Jeda obat sebelum makan ke sesudah makan tepat 35 menit
       expect(dtMedAfter.difference(dtMedBefore).inMinutes, 35);
     });
+
+    test('Aturan Pembagian Waktu Bangun ke Tidur Konsisten & Makan Malam Maksimal 2 Jam Sebelum Tidur', () {
+      final templates = [
+        {
+          'id': 1,
+          'title': 'Waktu Sarapan',
+          'schedule_at': '2026-11-08T07:05:00',
+        },
+        {
+          'id': 2,
+          'title': 'Minum Obat: Amoxicillin',
+          'schedule_at': '2026-11-08T07:00:00',
+          'prescription_id': 1,
+          'reminder_items': [{'medication_id': 1}],
+        },
+        {
+          'id': 3,
+          'title': 'Minum Obat: Captopril',
+          'schedule_at': '2026-11-08T07:00:00',
+          'prescription_id': 2,
+          'reminder_items': [{'medication_id': 2}],
+        },
+        {
+          'id': 4,
+          'title': 'Waktu Makan Malam',
+          'schedule_at': '2026-11-08T20:30:00', // Template awal 20:30 (terlalu malam jika tidur 21:00)
+        },
+      ];
+
+      final prescriptions = [
+        {
+          'id': 1,
+          'start_at': '07:00',
+          'medications': [
+            {
+              'id': 1,
+              'medicine_name': 'Amoxicillin',
+              'frequency': '3x sehari', // Dibagi konsisten antara bangun dan sebelum tidur!
+              'quantity': 6,
+              'dosage': '1 kapsul',
+              'isAfterEat': false,
+            },
+          ],
+        },
+        {
+          'id': 2,
+          'start_at': '07:00',
+          'medications': [
+            {
+              'id': 2,
+              'medicine_name': 'Captopril',
+              'frequency': '2x sehari', // Pagi dan malam berjarak 12 jam!
+              'quantity': 4,
+              'dosage': '1 tablet',
+              'isAfterEat': false,
+            },
+          ],
+        },
+      ];
+
+      final result = expandCareSchedule(
+        baseDate: DateTime(2026, 11, 8),
+        templateReminders: templates,
+        prescriptions: prescriptions,
+        rutinitas: {'jam_bangun': '06:00', 'jam_tidur': '21:00'}, // Tidur jam 21:00
+      );
+
+      // Hari 1 untuk Amoxicillin (3x sehari)
+      final amoxDay1 = result.where((r) {
+        final items = r['reminder_items'] as List? ?? [];
+        return r['day_number'] == 1 && items.any((it) => it['medication_id'] == 1);
+      }).toList();
+
+      expect(amoxDay1.length, 3);
+      final amoxTimes = amoxDay1.map((r) => DateTime.parse(r['schedule_at'] as String)).toList();
+      // Jarak antar dosis 1 -> 2 dan 2 -> 3 konsisten sama rata
+      final diff1 = amoxTimes[1].difference(amoxTimes[0]).inMinutes;
+      final diff2 = amoxTimes[2].difference(amoxTimes[1]).inMinutes;
+      expect((diff1 - diff2).abs() <= 15, isTrue, reason: 'Jarak antar dosis harus konsisten!');
+
+      // Pastikan jadwal makan malam paling lama 2 jam sebelum jam tidur (21:00 - 2 jam = 19:00)
+      final dinnerReminder = result.firstWhere((r) => r['title'] == 'Waktu Makan Malam' && r['day_number'] == 1);
+      final dtDinner = DateTime.parse(dinnerReminder['schedule_at'] as String);
+      final latestDinnerAllowed = DateTime(2026, 11, 8, 19, 0);
+      expect(
+        dtDinner.isAfter(latestDinnerAllowed),
+        isFalse,
+        reason: 'Waktu makan malam tidak boleh melewati 2 jam sebelum jam tidur (maksimal 19:00 jika tidur 21:00)',
+      );
+
+      // Hari 1 untuk Captopril (2x sehari)
+      final captoDay1 = result.where((r) {
+        final items = r['reminder_items'] as List? ?? [];
+        return r['day_number'] == 1 && items.any((it) => it['medication_id'] == 2);
+      }).toList();
+
+      expect(captoDay1.length, 2);
+      final captoTimes = captoDay1.map((r) => DateTime.parse(r['schedule_at'] as String)).toList();
+      expect(captoTimes[1].difference(captoTimes[0]).inHours >= 11, isTrue);
+    });
   });
 }

@@ -136,14 +136,14 @@ void main() {
         DateTime(2026, 11, 7, 19, 0),
       );
 
-      // Hari 2: kembali ke jadwal harian normal (07:30, 13:00, 19:00) lalu berhenti karena obat habis
+      // Hari 2: kembali ke jadwal harian normal berjarak konsisten (07:30, 13:15, 19:00) lalu berhenti karena obat habis
       expect(
         DateTime.parse(medReminders[2]['schedule_at'] as String),
         DateTime(2026, 11, 8, 7, 30),
       );
       expect(
         DateTime.parse(medReminders[3]['schedule_at'] as String),
-        DateTime(2026, 11, 8, 13, 0),
+        DateTime(2026, 11, 8, 13, 15),
       );
       expect(
         DateTime.parse(medReminders[4]['schedule_at'] as String),
@@ -467,8 +467,8 @@ void main() {
       );
       expect(find.text('Hari 1 · Hari Ini'), findsOneWidget);
       expect(find.text('Hari 2 · 8 Nov'), findsOneWidget);
-      // Dua obat pada jam 13:00 Hari 1 digabungkan ke 1 card -> total 7 jadwal
-      expect(find.text('Semua Hari (7)'), findsOneWidget);
+      // Obat pada jam 13:00 Hari 1 & 07:30 Hari 2 digabungkan ke 1 card -> total 6 jadwal
+      expect(find.text('Semua Hari (6)'), findsOneWidget);
 
       // Verifikasi tombol "Lihat Rekomendasi Menu & Resep" pada card jadwal makan
       expect(find.text('Lihat Rekomendasi Menu & Resep'), findsWidgets);
@@ -476,13 +476,13 @@ void main() {
       // Berpindah ke tab Resep
       expect(find.text('DAFTAR RESEP MAKANAN YANG DIGENERATE'), findsOneWidget);
       // Kembali ke tab Jadwal
-      await tapText(tester, 'Jadwal (7)');
+      await tapText(tester, 'Jadwal (6)');
 
       // Pastikan alarm sistem operasi telah disinkronkan
       final syncCall = platformCalls
           .where((c) => c.method == 'syncNotifications')
           .last;
-      expect((syncCall.args!['items'] as List), hasLength(7));
+      expect((syncCall.args!['items'] as List), hasLength(6));
 
       // Karena jam saat ini masih 10:00 dan jadwal pertama pukul 12:30 / 13:00,
       // jadwal BELUM BISA ditandai selesai!
@@ -491,8 +491,8 @@ void main() {
 
       await tapText(tester, 'Minum Amlodipine & Paracetamol');
       expect(find.textContaining('Belum waktunya!'), findsOneWidget);
-      // Masih 0/7 selesai
-      expect(find.text('0/7'), findsOneWidget);
+      // Masih 0/6 selesai
+      expect(find.text('0/6'), findsOneWidget);
 
       // Majukan waktu ke pukul 13:01 di Hari 1 -> jadwal 12:30 dan 13:00 tiba!
       fakeNow = DateTime(2026, 11, 7, 13, 1);
@@ -505,14 +505,14 @@ void main() {
 
       // Sekarang jadwal yang sudah waktunya BISA ditandai selesai, sedangkan pukul 19:00 belum!
       await tapText(tester, 'Selesaikan Jatuh Tempo (2)');
-      expect(find.text('2/7'), findsOneWidget);
+      expect(find.text('2/6'), findsOneWidget);
 
-      // Majukan waktu hingga akhir Hari ke-2 (8 Nov pukul 20:00) sehingga seluruh jadwal telah tiba
-      fakeNow = DateTime(2026, 11, 8, 20, 0);
+      // Majukan waktu hingga akhir Hari ke-2 (8 Nov pukul 23:59) sehingga seluruh jadwal telah tiba
+      fakeNow = DateTime(2026, 11, 8, 23, 59);
       notificationService.dueTick.value++;
       await tester.pumpAndSettle();
 
-      await tapText(tester, 'Selesaikan Jatuh Tempo (5)');
+      await tapText(tester, 'Selesaikan Jatuh Tempo (4)');
       expect(
         find.descendant(
           of: find.byType(ScheduleStatusBadge),
@@ -521,11 +521,11 @@ void main() {
         findsOneWidget,
       );
 
-      // Kembali ke Beranda -> status pasien menjadi Jadwal Selesai (7/7 jadwal, 2 Hari)
+      // Kembali ke Beranda -> status pasien menjadi Jadwal Selesai (6/6 jadwal, 2 Hari)
       await tapWidget(tester, find.byTooltip('Kembali ke Beranda'));
       expect(find.text('Pak Budi'), findsOneWidget);
       expect(find.text('2 Hari'), findsOneWidget);
-      expect(find.text('7/7 jadwal'), findsOneWidget);
+      expect(find.text('6/6 jadwal'), findsOneWidget);
       expect(
         find.descendant(
           of: find.byType(ScheduleStatusBadge),

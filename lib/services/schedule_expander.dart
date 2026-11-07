@@ -127,20 +127,25 @@ List<int> _buildDailyMedicationSlots({
   final instruction = ((medication['instruction'] as String?) ?? '')
       .toLowerCase();
 
+  // Aturan klinis: Makan malam paling lama 2 jam sebelum jam tidur (sleepMinutes - 120 menit)
+  final maxDinner = (sleepMinutes - 120).clamp(17 * 60, 21 * 60);
+
   final breakfast = mealMinutes.isNotEmpty
       ? mealMinutes.first
       : (wakeMinutes + 60).clamp(5 * 60, 9 * 60);
+  final dinner = mealMinutes.length >= 3
+      ? mealMinutes.last.clamp(17 * 60, maxDinner)
+      : maxDinner;
   final lunch = mealMinutes.length >= 2
       ? mealMinutes[mealMinutes.length ~/ 2]
-      : 12 * 60 + 30;
-  final dinner = mealMinutes.length >= 3
-      ? mealMinutes.last
-      : (sleepMinutes - 150).clamp(17 * 60 + 30, 19 * 60 + 30);
+      : ((breakfast + dinner) ~/ 2);
 
   int clampAwake(int minutes) =>
       minutes.clamp(wakeMinutes, sleepMinutes).toInt();
 
-  if (freq == 1) {
+  final safeFreq = freq.clamp(1, 6);
+
+  if (safeFreq == 1) {
     int defaultSingle;
     if (instruction.contains('malam') || instruction.contains('tidur')) {
       defaultSingle = clampAwake(dinner + offset);
@@ -162,39 +167,22 @@ List<int> _buildDailyMedicationSlots({
     return [defaultSingle];
   }
 
-  if (freq == 2) {
-    if (aiSlots.length >= 2) return aiSlots.take(2).toList();
-    final morning = clampAwake(breakfast + offset);
-    final evening = clampAwake(dinner + offset);
-    if (aiSlots.length == 1) {
-      final only = aiSlots.first;
-      if (only < 13 * 60) {
-        final second = evening - only >= 240
-            ? evening
-            : (only + 480).clamp(only + 240, 23 * 60);
-        return _dedupeSortedSlots([only, second]);
-      } else {
-        return _dedupeSortedSlots([morning, only]);
-      }
-    }
-    return _dedupeSortedSlots([morning, evening]);
+  // Waktu awal dosis obat (sarapan) dan waktu akhir dosis obat (makan malam, paling lama 2 jam sebelum tidur)
+  final startFirst = clampAwake(breakfast + offset);
+  final endLast = clampAwake(dinner + offset);
+
+  // Membagi waktu total antara jam bangun tidur dan jam tidur secara merata
+  // menghasilkan interval waktu yang konsisten antar jadwal minum obat
+  final span = (endLast - startFirst).clamp(120, 24 * 60);
+  final step = span / (safeFreq - 1);
+
+  final rawSlots = <int>[];
+  for (var i = 0; i < safeFreq; i++) {
+    final slot = (startFirst + (step * i)).round();
+    rawSlots.add(slot);
   }
 
-  if (freq == 3) {
-    if (aiSlots.length >= 3) return aiSlots.take(3).toList();
-    final morning = clampAwake(breakfast + offset);
-    final midday = clampAwake(lunch + offset);
-    final evening = clampAwake(dinner + offset);
-    return _dedupeSortedSlots([morning, midday, evening]);
-  }
-
-  if (aiSlots.length >= freq) return aiSlots.take(freq).toList();
-  final spanStart = (wakeMinutes + 30).clamp(0, 22 * 60);
-  final spanEnd = (sleepMinutes - 30).clamp(spanStart + 120, 23 * 60 + 30);
-  final step = (spanEnd - spanStart) / (freq - 1);
-  return [
-    for (var i = 0; i < freq; i++) (spanStart + (step * i)).round(),
-  ];
+  return _dedupeSortedSlots(rawSlots);
 }
 
 /// Memperluas template jadwal 1 hari dari AI menjadi jadwal multi-hari
@@ -217,8 +205,13 @@ List<Json> expandCareSchedule({
   ];
 
   // Jika tidak ada resep obat, gunakan jadwal 1 hari sebagaimana dikembalikan AI.
-  // Pastikan tidak ada kategori makan yang sama dalam 1 hari.
+  // Pastikan tidak ada kategori makan yang sama dalam 1 hari dan makan malam paling lama 2 jam sebelum tidur.
   if (allMeds.isEmpty) {
+    final sleepMins = parseMinutesOfDay(
+      rutinitas['jam_tidur']?.toString(),
+      fallback: 22 * 60,
+    );
+    final maxDinner = (sleepMins - 120).clamp(17 * 60, 21 * 60);
     final seenCategories = <String>{};
     final singleDay = <Json>[];
     for (final r in templateReminders) {
@@ -228,9 +221,23 @@ List<Json> expandCareSchedule({
         continue;
       }
       seenCategories.add(mealTitle);
+      var adjustedScheduleAt = r['schedule_at'] as String?;
+      if (mealTitle == 'Waktu Makan Malam' && mins > maxDinner) {
+        final parsedDt = DateTime.tryParse(adjustedScheduleAt ?? '');
+        if (parsedDt != null) {
+          adjustedScheduleAt = DateTime(
+            parsedDt.year,
+            parsedDt.month,
+            parsedDt.day,
+            maxDinner ~/ 60,
+            maxDinner % 60,
+          ).toIso8601String();
+        }
+      }
       singleDay.add({
         ...r,
         'title': mealTitle,
+        if (adjustedScheduleAt != null) 'schedule_at': adjustedScheduleAt,
         'status': (r['status'] as String?) ?? 'pending',
         'day_number': 1,
       });
@@ -421,12 +428,17 @@ List<Json> expandCareSchedule({
       }
       seenCategoriesThisDay.add(mealTitle);
 
+      final maxDinner = (sleepMinutes - 120).clamp(17 * 60, 21 * 60);
+      final mealMinutesEffective = (mealTitle == 'Waktu Makan Malam' && mt.minutes > maxDinner)
+          ? maxDinner
+          : mt.minutes;
+
       final scheduledAt = DateTime(
         dayZero.year,
         dayZero.month,
         dayZero.day + dayOffset,
-        mt.minutes ~/ 60,
-        mt.minutes % 60,
+        mealMinutesEffective ~/ 60,
+        mealMinutesEffective % 60,
       );
       expandedMealReminders.add({
         ...mt.template,
@@ -498,6 +510,19 @@ List<Json> expandCareSchedule({
         for (final a in afterEatList) {
           a['schedule_at'] = earliestAfter.toIso8601String();
         }
+      }
+
+      // Pastikan aturan klinis: Makan malam paling lama 2 jam sebelum tidur
+      final maxDinner = (sleepMinutes - 120).clamp(17 * 60, 21 * 60);
+      final maxDinnerDt = DateTime(
+        dayZero.year,
+        dayZero.month,
+        dayZero.day + dayOffset,
+        maxDinner ~/ 60,
+        maxDinner % 60,
+      );
+      if (session.category == 'Waktu Makan Malam' && mealDt.isAfter(maxDinnerDt)) {
+        mealDt = maxDinnerDt;
       }
 
       if (sessionMealIndex != -1) {
