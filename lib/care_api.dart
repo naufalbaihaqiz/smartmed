@@ -45,10 +45,14 @@ class CareApi {
 
   Future<({String status, List<Json> meals, List<String> messages})>
   generateMeals(Json input, int version) async {
-    final response = await _post('api/meal-plans/generate', {
-      ...input,
-      'budget': input['budget'] ?? 100000.0,
-    }, version);
+    final rawBudget = input['budget'];
+    final budget = rawBudget is num ? rawBudget.toDouble() : 20000.0;
+    final response = await _post(
+      'api/meal-plans/generate',
+      {...input, 'budget': budget},
+      version,
+      prefix: 'req-meal',
+    );
     final meals = _objects(response['meals']);
     for (final meal in meals) {
       _require<String>(meal, 'recipe_name');
@@ -85,7 +89,12 @@ class CareApi {
     })
   >
   generateSchedule(Json input, int version) async {
-    final response = await _post('api/schedules/generate', input, version);
+    final response = await _post(
+      'api/schedules/generate',
+      input,
+      version,
+      prefix: 'req-sched',
+    );
     final responseVersion = response['input_version'];
     if (responseVersion is num && responseVersion.toInt() != version) {
       throw const CareApiException('Versi jadwal berbeda. Buat ulang jadwal.');
@@ -126,7 +135,12 @@ class CareApi {
     );
   }
 
-  Future<Json> _post(String path, Json input, int version) async {
+  Future<Json> _post(
+    String path,
+    Json input,
+    int version, {
+    String prefix = 'req',
+  }) async {
     final base = Uri.tryParse(baseUrl.trim());
     if (base == null ||
         !['http', 'https'].contains(base.scheme) ||
@@ -144,10 +158,11 @@ class CareApi {
       ],
     );
     final random = Random.secure();
-    final requestId = List.generate(
-      16,
+    final suffix = List.generate(
+      6,
       (_) => random.nextInt(256).toRadixString(16).padLeft(2, '0'),
     ).join();
+    final requestId = '$prefix-$suffix';
     try {
       final response = await _client
           .post(
@@ -162,7 +177,7 @@ class CareApi {
               'input_version': version,
             }),
           )
-          .timeout(const Duration(seconds: 90));
+          .timeout(const Duration(seconds: 20));
       if (response.statusCode < 200 || response.statusCode >= 300) {
         if (response.statusCode == 422) {
           final missingFields = _missingFields(response.body);

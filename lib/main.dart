@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
@@ -7,6 +9,7 @@ import 'models/care_plan.dart';
 import 'palette.dart';
 import 'screens/care_wizard_page.dart';
 import 'screens/patient_care_detail_page.dart';
+import 'services/notification_service.dart';
 import 'web_demo.dart';
 import 'widgets.dart';
 
@@ -22,20 +25,46 @@ Future<void> main() async {
     await DatabaseHelper.instance.database;
     persistentStore = SqliteCarePlanStore();
   }
-  runApp(TemanRawatApp(store: persistentStore));
+  runApp(
+    TemanRawatApp(
+      store: persistentStore,
+      enableLiveNotifications: true,
+    ),
+  );
 }
 
-class TemanRawatApp extends StatelessWidget {
-  const TemanRawatApp({super.key, this.api, this.store});
+class TemanRawatApp extends StatefulWidget {
+  const TemanRawatApp({
+    super.key,
+    this.api,
+    this.store,
+    this.notificationService,
+    this.nowProvider,
+    this.enableLiveNotifications = false,
+  });
 
   final CareApi? api;
   final CarePlanStore? store;
+  final NotificationService? notificationService;
+  final DateTime Function()? nowProvider;
+  final bool enableLiveNotifications;
+
+  @override
+  State<TemanRawatApp> createState() => _TemanRawatAppState();
+}
+
+class _TemanRawatAppState extends State<TemanRawatApp> {
+  final GlobalKey<ScaffoldMessengerState> _messengerKey =
+      GlobalKey<ScaffoldMessengerState>();
+  final GlobalKey<NavigatorState> _navigatorKey = GlobalKey<NavigatorState>();
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'TemanRawat',
       debugShowCheckedModeBanner: false,
+      scaffoldMessengerKey: _messengerKey,
+      navigatorKey: _navigatorKey,
       theme: ThemeData(
         useMaterial3: true,
         scaffoldBackgroundColor: cream,
@@ -132,7 +161,14 @@ class TemanRawatApp extends StatelessWidget {
           ),
         ),
       ),
-      home: HomePage(api: api, store: store),
+      home: HomePage(
+        api: widget.api,
+        store: widget.store,
+        notificationService: widget.notificationService,
+        nowProvider: widget.nowProvider,
+        enableLiveNotifications: widget.enableLiveNotifications,
+        messengerKey: _messengerKey,
+      ),
     );
   }
 }
@@ -140,16 +176,28 @@ class TemanRawatApp extends StatelessWidget {
 enum _PatientFilter { all, ongoing, completed }
 
 class HomePage extends StatefulWidget {
-  const HomePage({super.key, this.api, this.store});
+  const HomePage({
+    super.key,
+    this.api,
+    this.store,
+    this.notificationService,
+    this.nowProvider,
+    this.enableLiveNotifications = false,
+    this.messengerKey,
+  });
 
   final CareApi? api;
   final CarePlanStore? store;
+  final NotificationService? notificationService;
+  final DateTime Function()? nowProvider;
+  final bool enableLiveNotifications;
+  final GlobalKey<ScaffoldMessengerState>? messengerKey;
 
   @override
   State<HomePage> createState() => _HomePageState();
 }
 
-class _HomePageState extends State<HomePage> {
+class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   late final CareApi _api =
       widget.api ?? (webDemoEnabled ? WebDemo().createApi() : CareApi());
   late final CarePlanStore _store =
@@ -157,21 +205,110 @@ class _HomePageState extends State<HomePage> {
       MemoryCarePlanStore(
         webDemoEnabled ? WebDemo.sampleCarePlans() : const [],
       );
+  late final NotificationService _notifications =
+      widget.notificationService ??
+      NotificationService(nowProvider: widget.nowProvider);
 
+  StreamSubscription<DueScheduleAlert>? _alertSubscription;
   List<PatientCarePlan> _plans = [];
   bool _loading = true;
   _PatientFilter _filter = _PatientFilter.all;
 
+  DateTime _now() => (widget.nowProvider ?? DateTime.now)().toLocal();
+
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _alertSubscription = _notifications.onAlert.listen(_showInAppAlert);
+    unawaited(
+      _notifications.initialize(
+        enableLiveMonitoring: widget.enableLiveNotifications,
+      ),
+    );
     _loadPlans();
   }
 
   @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _notifications.onAppResumed();
+      if (mounted) setState(() {});
+    }
+  }
+
+  @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _alertSubscription?.cancel();
+    if (widget.notificationService == null) {
+      _notifications.dispose();
+    }
     if (widget.api == null) _api.close();
     super.dispose();
+  }
+
+  void _showInAppAlert(DueScheduleAlert alert) {
+    if (!mounted) return;
+    final messenger =
+        widget.messengerKey?.currentState ?? ScaffoldMessenger.maybeOf(context);
+    if (messenger == null) return;
+
+    messenger
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(
+          behavior: SnackBarBehavior.floating,
+          backgroundColor: deepForest,
+          duration: const Duration(seconds: 7),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(14),
+          ),
+          content: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: alert.isMedication ? medSoft : paleTeal,
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Icon(
+                  alert.isMedication
+                      ? Icons.medication_rounded
+                      : Icons.notifications_active_rounded,
+                  size: 19,
+                  color: alert.isMedication ? medAccent : teal,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      alert.headline,
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w800,
+                        fontSize: 13,
+                        color: Colors.white,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      alert.body,
+                      style: const TextStyle(
+                        fontSize: 12,
+                        color: Color(0xFFD5EBD9),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
   }
 
   Future<void> _loadPlans() async {
@@ -181,19 +318,22 @@ class _HomePageState extends State<HomePage> {
       _plans = List<PatientCarePlan>.from(loaded);
       _loading = false;
     });
+    await _notifications.syncPlans(_plans, now: _now());
   }
 
-  Future<void> _upsertPlan(PatientCarePlan plan) async {
-    await _store.save(plan);
-    if (!mounted) return;
+  Future<PatientCarePlan> _upsertPlan(PatientCarePlan plan) async {
+    final synced = await _store.save(plan);
+    if (!mounted) return synced;
     setState(() {
-      final index = _plans.indexWhere((item) => item.id == plan.id);
+      final index = _plans.indexWhere((item) => item.id == synced.id);
       if (index >= 0) {
-        _plans[index] = plan;
+        _plans[index] = synced;
       } else {
-        _plans.insert(0, plan);
+        _plans.insert(0, synced);
       }
     });
+    await _notifications.syncPlans(_plans, now: _now());
+    return synced;
   }
 
   Future<void> _deletePlan(String id) async {
@@ -202,6 +342,7 @@ class _HomePageState extends State<HomePage> {
     setState(() {
       _plans.removeWhere((item) => item.id == id);
     });
+    await _notifications.syncPlans(_plans, now: _now());
   }
 
   Future<void> _openDetail(PatientCarePlan plan) async {
@@ -210,7 +351,11 @@ class _HomePageState extends State<HomePage> {
       MaterialPageRoute(
         builder: (_) => PatientCareDetailPage(
           initialPlan: plan,
-          onPlanUpdated: _upsertPlan,
+          nowProvider: widget.nowProvider,
+          refreshListenable: _notifications.dueTick,
+          onPlanUpdated: (updated) {
+            _upsertPlan(updated);
+          },
           onDeletePlan: () => _deletePlan(plan.id),
         ),
       ),
@@ -221,13 +366,17 @@ class _HomePageState extends State<HomePage> {
     final createdPlan = await Navigator.push<PatientCarePlan>(
       context,
       MaterialPageRoute(
-        builder: (_) => CareWizardPage(api: _api),
+        builder: (_) => CareWizardPage(
+          api: _api,
+          store: _store,
+          nowProvider: widget.nowProvider,
+        ),
       ),
     );
     if (createdPlan == null || !mounted) return;
-    await _upsertPlan(createdPlan);
+    final synced = await _upsertPlan(createdPlan);
     if (!mounted) return;
-    await _openDetail(createdPlan);
+    await _openDetail(synced);
   }
 
   Future<void> _openApiSettingsDialog() async {
@@ -380,7 +529,7 @@ class _HomePageState extends State<HomePage> {
                           ),
                           const SizedBox(height: 4),
                           Text(
-                            '$doneTasks dari $totalTasks jadwal harian telah diselesaikan',
+                            '$doneTasks dari $totalTasks jadwal perawatan telah diselesaikan',
                             style: const TextStyle(
                               color: Color(0xFFD5EBD9),
                               fontSize: 12.5,
@@ -449,6 +598,7 @@ class _HomePageState extends State<HomePage> {
         ? '?'
         : plan.patientName.trim().characters.first.toUpperCase();
     final isDone = plan.isScheduleCompleted;
+    final days = plan.totalDays;
 
     return Surface(
       onTap: () => _openDetail(plan),
@@ -552,6 +702,13 @@ class _HomePageState extends State<HomePage> {
                         'Tanpa Resep',
                         color: slate,
                         textColor: muted,
+                      ),
+                    if (days > 1)
+                      BadgePill(
+                        '$days Hari',
+                        color: paleTeal,
+                        textColor: teal,
+                        icon: Icons.date_range_rounded,
                       ),
                   ],
                 ),

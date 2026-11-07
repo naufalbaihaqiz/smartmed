@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
 import '../care_api.dart';
+import '../care_forms.dart';
 import '../models/care_plan.dart';
 import '../palette.dart';
 import '../widgets.dart';
@@ -12,19 +13,96 @@ class PatientCareDetailPage extends StatefulWidget {
     required this.initialPlan,
     required this.onPlanUpdated,
     this.onDeletePlan,
+    this.nowProvider,
+    this.refreshListenable,
   });
 
   final PatientCarePlan initialPlan;
   final ValueChanged<PatientCarePlan> onPlanUpdated;
   final VoidCallback? onDeletePlan;
+  final DateTime Function()? nowProvider;
+  final Listenable? refreshListenable;
 
   @override
   State<PatientCareDetailPage> createState() => _PatientCareDetailPageState();
 }
 
 class _PatientCareDetailPageState extends State<PatientCareDetailPage> {
+  static const List<String> _shortMonths = [
+    'Jan',
+    'Feb',
+    'Mar',
+    'Apr',
+    'Mei',
+    'Jun',
+    'Jul',
+    'Agu',
+    'Sep',
+    'Okt',
+    'Nov',
+    'Des',
+  ];
+
   late PatientCarePlan _plan = widget.initialPlan;
   int _selectedTab = 0;
+
+  /// `null` berarti menampilkan seluruh hari sekaligus ("Semua Hari").
+  String? _selectedDayKey;
+  bool _daySelectionInitialized = false;
+
+  DateTime _now() => (widget.nowProvider ?? DateTime.now)().toLocal();
+
+  @override
+  void initState() {
+    super.initState();
+    _initDefaultDaySelection();
+    widget.refreshListenable?.addListener(_handleExternalRefresh);
+  }
+
+  @override
+  void didUpdateWidget(covariant PatientCareDetailPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.refreshListenable != widget.refreshListenable) {
+      oldWidget.refreshListenable?.removeListener(_handleExternalRefresh);
+      widget.refreshListenable?.addListener(_handleExternalRefresh);
+    }
+  }
+
+  @override
+  void dispose() {
+    widget.refreshListenable?.removeListener(_handleExternalRefresh);
+    super.dispose();
+  }
+
+  void _handleExternalRefresh() {
+    if (mounted) setState(() {});
+  }
+
+  void _initDefaultDaySelection() {
+    if (_daySelectionInitialized) return;
+    _daySelectionInitialized = true;
+    final keys = _orderedDayKeys();
+    if (keys.length <= 1) {
+      _selectedDayKey = null;
+      return;
+    }
+    final todayKey = formatIsoDate(_now());
+    _selectedDayKey = keys.contains(todayKey) ? todayKey : keys.first;
+  }
+
+  List<String> _orderedDayKeys() {
+    final seen = <String>{};
+    final ordered = <String>[];
+    for (final rem in _plan.reminders) {
+      final dt = PatientCarePlan.parseReminderTime(rem);
+      if (dt == null) continue;
+      final key = formatIsoDate(dt);
+      if (seen.add(key)) {
+        ordered.add(key);
+      }
+    }
+    return ordered;
+  }
 
   String _formatTime(String rawIso) {
     final parsed = DateTime.tryParse(rawIso)?.toLocal();
@@ -34,15 +112,59 @@ class _PatientCareDetailPageState extends State<PatientCareDetailPage> {
     return '$hh:$mm';
   }
 
+  String _formatShortDateFromKey(String isoDate) {
+    final parts = isoDate.split('-');
+    if (parts.length != 3) return isoDate;
+    final month = int.tryParse(parts[1]) ?? 1;
+    final day = int.tryParse(parts[2]) ?? 1;
+    return '$day ${_shortMonths[(month - 1).clamp(0, 11)]}';
+  }
+
+  String _formatDateBadge(String rawIso) {
+    final parsed = DateTime.tryParse(rawIso)?.toLocal();
+    if (parsed == null) return '';
+    return '${parsed.day} ${_shortMonths[(parsed.month - 1).clamp(0, 11)]}';
+  }
+
+  String _formatFullDateTime(String rawIso) {
+    final parsed = DateTime.tryParse(rawIso)?.toLocal();
+    if (parsed == null) return rawIso;
+    final hh = parsed.hour.toString().padLeft(2, '0');
+    final mm = parsed.minute.toString().padLeft(2, '0');
+    final month = _shortMonths[(parsed.month - 1).clamp(0, 11)];
+    return '${parsed.day} $month ${parsed.year} pukul $hh:$mm';
+  }
+
   void _toggleReminder(int index) {
+    final target = _plan.reminders[index];
+    final isCurrentlyCompleted = target['status'] == 'completed';
+
+    if (!isCurrentlyCompleted &&
+        !PatientCarePlan.isReminderDue(target, now: _now())) {
+      final title = target['title'] as String? ?? 'Jadwal';
+      final whenText = _formatFullDateTime(
+        target['schedule_at'] as String? ?? '',
+      );
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(
+          SnackBar(
+            behavior: SnackBarBehavior.floating,
+            backgroundColor: ink,
+            content: Text(
+              'Belum waktunya! "$title" baru dapat ditandai selesai pada $whenText.',
+            ),
+          ),
+        );
+      return;
+    }
+
     final updatedReminders = [
       for (var i = 0; i < _plan.reminders.length; i++)
         if (i == index)
           {
             ..._plan.reminders[i],
-            'status': _plan.reminders[i]['status'] == 'completed'
-                ? 'pending'
-                : 'completed',
+            'status': isCurrentlyCompleted ? 'pending' : 'completed',
           }
         else
           Map<String, dynamic>.from(_plan.reminders[i]),
@@ -52,10 +174,60 @@ class _PatientCareDetailPageState extends State<PatientCareDetailPage> {
     widget.onPlanUpdated(updated);
   }
 
-  void _setAllRemindersStatus(String status) {
+  void _completeAllDueReminders() {
+    final currentNow = _now();
+    var changedCount = 0;
     final updatedReminders = [
       for (final reminder in _plan.reminders)
-        {...reminder, 'status': status},
+        if (reminder['status'] != 'completed' &&
+            PatientCarePlan.isReminderDue(reminder, now: currentNow))
+          () {
+            changedCount++;
+            return <String, dynamic>{...reminder, 'status': 'completed'};
+          }()
+        else
+          Map<String, dynamic>.from(reminder),
+    ];
+
+    if (changedCount == 0) {
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(
+          const SnackBar(
+            behavior: SnackBarBehavior.floating,
+            content: Text(
+              'Belum ada jadwal yang memasuki waktunya untuk ditandai selesai.',
+            ),
+          ),
+        );
+      return;
+    }
+
+    final updated = _plan.copyWith(reminders: updatedReminders);
+    setState(() => _plan = updated);
+    widget.onPlanUpdated(updated);
+
+    final remainingPending =
+        updated.totalSchedules - updated.completedSchedules;
+    if (remainingPending > 0 && mounted) {
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(
+          SnackBar(
+            behavior: SnackBarBehavior.floating,
+            content: Text(
+              '$changedCount jadwal yang sudah tiba ditandai selesai. '
+              '$remainingPending jadwal berikutnya menunggu waktunya tiba.',
+            ),
+          ),
+        );
+    }
+  }
+
+  void _resetAllReminders() {
+    final updatedReminders = [
+      for (final reminder in _plan.reminders)
+        {...reminder, 'status': 'pending'},
     ];
     final updated = _plan.copyWith(reminders: updatedReminders);
     setState(() => _plan = updated);
@@ -96,6 +268,7 @@ class _PatientCareDetailPageState extends State<PatientCareDetailPage> {
     final completed = _plan.completedSchedules;
     final total = _plan.totalSchedules;
     final percent = (_plan.progress * 100).round();
+    final daysCount = _plan.totalDays;
 
     return Container(
       padding: const EdgeInsets.all(20),
@@ -195,6 +368,11 @@ class _PatientCareDetailPageState extends State<PatientCareDetailPage> {
             spacing: 8,
             runSpacing: 8,
             children: [
+              if (daysCount > 1)
+                _HeroMetricChip(
+                  '$daysCount hari jadwal',
+                  Icons.calendar_month_rounded,
+                ),
               if (_plan.age != null)
                 _HeroMetricChip('${_plan.age} thn', Icons.cake_outlined),
               if (_plan.weight != null)
@@ -247,6 +425,70 @@ class _PatientCareDetailPageState extends State<PatientCareDetailPage> {
     );
   }
 
+  Widget _buildDayFilterBar(List<String> dayKeys) {
+    final todayKey = formatIsoDate(_now());
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 10),
+          decoration: BoxDecoration(
+            color: paleTeal,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: teal.withValues(alpha: 0.2)),
+          ),
+          child: Row(
+            children: [
+              const Icon(Icons.date_range_rounded, size: 17, color: teal),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'Jadwal disusun untuk ${dayKeys.length} hari perawatan sampai seluruh obat habis.',
+                  style: const TextStyle(
+                    fontSize: 12.5,
+                    color: ink,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 12),
+        SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: Row(
+            children: [
+              for (var d = 0; d < dayKeys.length; d++) ...[
+                if (d > 0) const SizedBox(width: 8),
+                ChoiceChip(
+                  label: Text(
+                    dayKeys[d] == todayKey
+                        ? 'Hari ${d + 1} · Hari Ini'
+                        : 'Hari ${d + 1} · ${_formatShortDateFromKey(dayKeys[d])}',
+                  ),
+                  selected: _selectedDayKey == dayKeys[d],
+                  selectedColor: paleTeal,
+                  onSelected: (_) =>
+                      setState(() => _selectedDayKey = dayKeys[d]),
+                ),
+              ],
+              const SizedBox(width: 8),
+              ChoiceChip(
+                label: Text('Semua Hari (${_plan.reminders.length})'),
+                selected: _selectedDayKey == null,
+                selectedColor: paleTeal,
+                onSelected: (_) => setState(() => _selectedDayKey = null),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 12),
+      ],
+    );
+  }
+
   Widget _buildScheduleTab() {
     if (_plan.reminders.isEmpty) {
       return const EmptyPanel(
@@ -256,46 +498,106 @@ class _PatientCareDetailPageState extends State<PatientCareDetailPage> {
       );
     }
 
+    final currentNow = _now();
+    final dayKeys = _orderedDayKeys();
+    final isMultiDay = dayKeys.length > 1;
+    final activeDayKey =
+        isMultiDay &&
+            _selectedDayKey != null &&
+            dayKeys.contains(_selectedDayKey)
+        ? _selectedDayKey
+        : null;
+
+    final visibleEntries = <({int index, Json reminder})>[
+      for (var i = 0; i < _plan.reminders.length; i++)
+        if (activeDayKey == null ||
+            (() {
+              final dt = PatientCarePlan.parseReminderTime(_plan.reminders[i]);
+              return dt != null && formatIsoDate(dt) == activeDayKey;
+            })())
+          (index: i, reminder: _plan.reminders[i]),
+    ];
+
+    final duePendingCount = _plan.duePendingCount(now: currentNow);
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Row(
+        if (isMultiDay) _buildDayFilterBar(dayKeys),
+        Wrap(
+          alignment: WrapAlignment.spaceBetween,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          spacing: 8,
+          runSpacing: 6,
           children: [
-            const Expanded(
-              child: Eyebrow('JADWAL MAKAN & MINUM OBAT'),
-            ),
-            if (!_plan.isScheduleCompleted)
+            const Eyebrow('JADWAL MAKAN & MINUM OBAT'),
+            if (_plan.isScheduleCompleted)
               TextButton.icon(
-                onPressed: () => _setAllRemindersStatus('completed'),
-                icon: const Icon(Icons.done_all_rounded, size: 17),
-                label: const Text('Selesaikan Semua'),
-              )
-            else
-              TextButton.icon(
-                onPressed: () => _setAllRemindersStatus('pending'),
+                style: TextButton.styleFrom(
+                  visualDensity: VisualDensity.compact,
+                  padding: const EdgeInsets.symmetric(horizontal: 10),
+                ),
+                onPressed: _resetAllReminders,
                 icon: const Icon(Icons.restart_alt_rounded, size: 17),
                 label: const Text('Ulangi Jadwal'),
+              )
+            else if (duePendingCount > 0)
+              TextButton.icon(
+                style: TextButton.styleFrom(
+                  visualDensity: VisualDensity.compact,
+                  padding: const EdgeInsets.symmetric(horizontal: 10),
+                ),
+                onPressed: _completeAllDueReminders,
+                icon: const Icon(Icons.done_all_rounded, size: 17),
+                label: Text('Selesaikan Jatuh Tempo ($duePendingCount)'),
+              )
+            else
+              const BadgePill(
+                'Menunggu Waktu Jadwal',
+                color: slate,
+                textColor: muted,
+                icon: Icons.lock_clock_outlined,
               ),
           ],
         ),
-        const SizedBox(height: 6),
-        for (var i = 0; i < _plan.reminders.length; i++) ...[
+        const SizedBox(height: 8),
+        for (var i = 0; i < visibleEntries.length; i++) ...[
           if (i > 0) const SizedBox(height: 12),
-          _buildReminderCard(_plan.reminders[i], i),
+          _buildReminderCard(
+            visibleEntries[i].reminder,
+            visibleEntries[i].index,
+            currentNow: currentNow,
+            showDateBadge: isMultiDay,
+          ),
         ],
       ],
     );
   }
 
-  Widget _buildReminderCard(Json reminder, int index) {
+  Widget _buildReminderCard(
+    Json reminder,
+    int index, {
+    required DateTime currentNow,
+    required bool showDateBadge,
+  }) {
     final isDone = reminder['status'] == 'completed';
+    final isDue = PatientCarePlan.isReminderDue(reminder, now: currentNow);
+    final isLocked = !isDone && !isDue;
     final isMed = _plan.isMedicationReminder(reminder);
     final meds = _plan.medicationsForReminder(reminder);
-    final timeText = _formatTime(reminder['schedule_at'] as String? ?? '');
+    final rawScheduleAt = reminder['schedule_at'] as String? ?? '';
+    final timeText = _formatTime(rawScheduleAt);
+    final dateBadge = _formatDateBadge(rawScheduleAt);
     final title = reminder['title'] as String? ?? 'Kegiatan Perawatan';
+    final doseNumber = (reminder['dose_number'] as num?)?.toInt();
+    final totalDoses = (reminder['total_doses'] as num?)?.toInt();
 
     return Surface(
-      color: isDone ? const Color(0xFFF3FAF5) : paper,
+      color: isDone
+          ? const Color(0xFFF3FAF5)
+          : isLocked
+          ? const Color(0xFFF4F6F4)
+          : paper,
       borderColor: isDone ? const Color(0xFFBBDFC6) : line,
       onTap: () => _toggleReminder(index),
       padding: const EdgeInsets.all(16),
@@ -313,6 +615,8 @@ class _PatientCareDetailPageState extends State<PatientCareDetailPage> {
                 decoration: BoxDecoration(
                   color: isDone
                       ? successSoft
+                      : isLocked
+                      ? slate
                       : isMed
                       ? medSoft
                       : paleTeal,
@@ -323,12 +627,16 @@ class _PatientCareDetailPageState extends State<PatientCareDetailPage> {
                     Icon(
                       isDone
                           ? Icons.check_circle_rounded
+                          : isLocked
+                          ? Icons.lock_clock_outlined
                           : isMed
                           ? Icons.medication_rounded
                           : Icons.restaurant_rounded,
                       size: 18,
                       color: isDone
                           ? successGreen
+                          : isLocked
+                          ? muted
                           : isMed
                           ? medAccent
                           : teal,
@@ -341,6 +649,8 @@ class _PatientCareDetailPageState extends State<PatientCareDetailPage> {
                         fontWeight: FontWeight.w800,
                         color: isDone
                             ? successGreen
+                            : isLocked
+                            ? muted
                             : isMed
                             ? medAccent
                             : ink,
@@ -363,11 +673,36 @@ class _PatientCareDetailPageState extends State<PatientCareDetailPage> {
                           color: isMed ? medSoft : paleTeal,
                           textColor: isMed ? medAccent : teal,
                         ),
+                        if (showDateBadge && dateBadge.isNotEmpty)
+                          BadgePill(
+                            dateBadge,
+                            color: slate,
+                            textColor: ink,
+                          ),
+                        if (doseNumber != null && totalDoses != null)
+                          BadgePill(
+                            'Dosis $doseNumber/$totalDoses',
+                            color: slate,
+                            textColor: muted,
+                          ),
                         if (isDone)
                           const BadgePill(
                             'Selesai',
                             color: successSoft,
                             textColor: successGreen,
+                          )
+                        else if (isDue)
+                          const BadgePill(
+                            'Sudah Waktunya',
+                            color: warningSoft,
+                            textColor: warningAmber,
+                          )
+                        else
+                          const BadgePill(
+                            'Belum Waktunya',
+                            color: slate,
+                            textColor: muted,
+                            icon: Icons.schedule_rounded,
                           ),
                       ],
                     ),
@@ -377,7 +712,7 @@ class _PatientCareDetailPageState extends State<PatientCareDetailPage> {
                       style: TextStyle(
                         fontSize: 16,
                         fontWeight: FontWeight.w700,
-                        color: isDone ? muted : ink,
+                        color: isDone || isLocked ? muted : ink,
                         decoration: isDone ? TextDecoration.lineThrough : null,
                       ),
                     ),
@@ -385,14 +720,24 @@ class _PatientCareDetailPageState extends State<PatientCareDetailPage> {
                 ),
               ),
               IconButton(
-                tooltip: isDone ? 'Batalkan selesai' : 'Tandai selesai',
+                tooltip: isDone
+                    ? 'Batalkan selesai'
+                    : isDue
+                    ? 'Tandai selesai'
+                    : 'Belum waktunya jadwal',
                 onPressed: () => _toggleReminder(index),
                 icon: Icon(
                   isDone
                       ? Icons.check_circle_rounded
-                      : Icons.radio_button_unchecked_rounded,
-                  color: isDone ? successGreen : muted,
-                  size: 26,
+                      : isDue
+                      ? Icons.radio_button_unchecked_rounded
+                      : Icons.lock_clock_outlined,
+                  color: isDone
+                      ? successGreen
+                      : isDue
+                      ? teal
+                      : muted,
+                  size: 25,
                 ),
               ),
             ],
@@ -506,7 +851,7 @@ class _PatientCareDetailPageState extends State<PatientCareDetailPage> {
                               ),
                             ),
                             Text(
-                              'Mulai konsumsi: ${prescription['start_at']}',
+                              'Jam mulai minum hari pertama: ${prescription['start_at']}',
                               style: const TextStyle(
                                 fontSize: 12.5,
                                 color: muted,
@@ -804,7 +1149,7 @@ class _SegmentButton extends StatelessWidget {
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: TextStyle(
-                  fontSize: 13,
+                  fontSize: 13.5,
                   fontWeight: FontWeight.w700,
                   color: selected ? ink : muted,
                 ),
@@ -816,4 +1161,3 @@ class _SegmentButton extends StatelessWidget {
     ),
   );
 }
-

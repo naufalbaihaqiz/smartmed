@@ -3,7 +3,7 @@ class DatabaseTables {
   DatabaseTables._();
 
   static const String databaseName = 'smartmed_local.db';
-  static const int databaseVersion = 4;
+  static const int databaseVersion = 5;
 
   // Nama-nama tabel
   static const String healthCondition = 'health_condition';
@@ -90,7 +90,7 @@ class DatabaseTables {
   static const String createRemindersTable = '''
     CREATE TABLE $reminders (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
-      prescription_id INTEGER NOT NULL,
+      prescription_id INTEGER,
       title TEXT NOT NULL,
       schedule_at TEXT NOT NULL,
       status TEXT NOT NULL DEFAULT 'pending',

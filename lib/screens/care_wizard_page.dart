@@ -5,6 +5,7 @@ import '../care_api.dart';
 import '../care_forms.dart';
 import '../models/care_plan.dart';
 import '../palette.dart';
+import '../services/schedule_expander.dart';
 import '../widgets.dart';
 
 enum _WizardStep {
@@ -43,9 +44,16 @@ class _MedicationDraft {
 }
 
 class CareWizardPage extends StatefulWidget {
-  const CareWizardPage({super.key, required this.api});
+  const CareWizardPage({
+    super.key,
+    required this.api,
+    this.store,
+    this.nowProvider,
+  });
 
   final CareApi api;
+  final CarePlanStore? store;
+  final DateTime Function()? nowProvider;
 
   @override
   State<CareWizardPage> createState() => _CareWizardPageState();
@@ -53,6 +61,8 @@ class CareWizardPage extends StatefulWidget {
 
 class _CareWizardPageState extends State<CareWizardPage> {
   final _scrollController = ScrollController();
+
+  DateTime _now() => (widget.nowProvider ?? DateTime.now)();
 
   // Form keys per step
   final _nameFormKey = GlobalKey<FormState>();
@@ -76,24 +86,24 @@ class _CareWizardPageState extends State<CareWizardPage> {
 
   // Step 3: Doctor's Prescription & Medications
   late final _prescriptionDateCtrl = TextEditingController(
-    text: formatIsoDate(DateTime.now()),
+    text: formatIsoDate(_now()),
   );
-  late final _prescriptionStartCtrl = TextEditingController(
-    text: formatIsoDate(DateTime.now()),
-  );
+  final _prescriptionStartCtrl = TextEditingController(text: '08:00');
   final _prescriptionNotesCtrl = TextEditingController();
   final List<_MedicationDraft> _medications = [_MedicationDraft()];
 
-  // Step 4: Allergies, Preferences & Budget
+  // Step 4: Allergies, Preferences, Budget & Routine
   final Set<String> _selectedAllergies = {};
   final _customAllergiesCtrl = TextEditingController();
   final Set<String> _selectedPreferences = {};
   final _customPreferencesCtrl = TextEditingController();
   final _budgetCtrl = TextEditingController();
+  final _wakeTimeCtrl = TextEditingController(text: '06:00');
+  final _sleepTimeCtrl = TextEditingController(text: '21:00');
   final _routineCtrl = TextEditingController();
 
-  // Step 5: API Generation State
-  int _inputVersion = 1;
+  // Step 5: API Generation State (dimulai dari 0 agar request pertama bernilai 1)
+  int _inputVersion = 0;
   bool _loadingMeals = false;
   bool _loadingSchedule = false;
   String? _apiError;
@@ -127,7 +137,7 @@ class _CareWizardPageState extends State<CareWizardPage> {
     'Tinggi protein',
   ];
 
-  static const _budgetPresets = [35000, 50000, 75000, 100000, 150000];
+  static const _budgetPresets = [20000, 35000, 50000, 75000, 100000];
 
   @override
   void dispose() {
@@ -148,6 +158,8 @@ class _CareWizardPageState extends State<CareWizardPage> {
     _customAllergiesCtrl.dispose();
     _customPreferencesCtrl.dispose();
     _budgetCtrl.dispose();
+    _wakeTimeCtrl.dispose();
+    _sleepTimeCtrl.dispose();
     _routineCtrl.dispose();
     super.dispose();
   }
@@ -270,13 +282,14 @@ class _CareWizardPageState extends State<CareWizardPage> {
 
       if (!mounted || version != _inputVersion) return;
 
+      final isDraft = result.status == 'draft';
       setState(() {
-        _generatedMeals = result.meals;
+        _generatedMeals = isDraft ? result.meals : [];
         _aiMessages = result.messages;
-        if (_generatedMeals.isEmpty) {
+        if (!isDraft || _generatedMeals.isEmpty) {
           _apiError = result.messages.isNotEmpty
               ? result.messages.join('\n')
-              : 'Server belum mengembalikan rekomendasi makanan. Silakan sesuaikan budget atau preferensi lalu coba lagi.';
+              : 'Server belum mengembalikan rekomendasi makanan (pastikan budget minimal Rp 10.000). Silakan sesuaikan budget atau preferensi lalu coba lagi.';
         }
       });
     } on CareApiException catch (e) {
@@ -299,17 +312,28 @@ class _CareWizardPageState extends State<CareWizardPage> {
     });
 
     final version = _inputVersion;
-    final prescriptions = _buildPrescriptionsPayload();
     final routineText = _routineCtrl.text.trim();
+    final rutinitas = <String, dynamic>{
+      'jam_bangun': _wakeTimeCtrl.text.trim(),
+      'jam_tidur': _sleepTimeCtrl.text.trim(),
+      if (routineText.isNotEmpty) 'preferensi_waktu_makan': routineText,
+    };
 
     try {
+      // Simpan/siapkan ID menu yang disetujui & resep obat sebelum membuat jadwal
+      final approvedMeals = widget.store != null
+          ? await widget.store!.persistApprovedMeals(_generatedMeals)
+          : assignMealIds(_generatedMeals);
+      final prescriptions = widget.store != null
+          ? await widget.store!.persistPrescriptions(
+              _buildPrescriptionsPayload(),
+            )
+          : _buildPrescriptionsPayload();
+
       final result = await widget.api.generateSchedule({
-        'menu_disetujui': _generatedMeals,
+        'menu_disetujui': approvedMeals,
         'prescriptions': prescriptions,
-        'rutinitas': {
-          'waktu_makan_standar': 'Pagi 07:00, Siang 12:30, Malam 18:30',
-          if (routineText.isNotEmpty) 'notes': routineText,
-        },
+        'rutinitas': rutinitas,
       }, version);
 
       if (!mounted || version != _inputVersion) return;
@@ -323,14 +347,12 @@ class _CareWizardPageState extends State<CareWizardPage> {
         return;
       }
 
-      final sortedReminders = result.reminders
-          .map<Json>((r) => {...r, 'status': 'pending'})
-          .toList()
-        ..sort(
-          (a, b) => DateTime.parse(
-            a['schedule_at'] as String,
-          ).compareTo(DateTime.parse(b['schedule_at'] as String)),
-        );
+      final sortedReminders = expandCareSchedule(
+        templateReminders: result.reminders,
+        prescriptions: prescriptions,
+        rutinitas: rutinitas,
+        baseDate: _now(),
+      );
 
       final allergies = _mergedList(
         _selectedAllergies,
@@ -342,17 +364,19 @@ class _CareWizardPageState extends State<CareWizardPage> {
       );
 
       final plan = PatientCarePlan(
-        id: DateTime.now().microsecondsSinceEpoch.toString(),
+        id: _now().microsecondsSinceEpoch.toString(),
         patientName: _patientNameCtrl.text.trim(),
         healthCondition: _buildHealthConditionPayload(),
         prescriptions: prescriptions,
         allergies: allergies,
         preferensi: preferences,
-        budget: parseRupiah(_budgetCtrl.text) ?? 50000.0,
+        budget: parseRupiah(_budgetCtrl.text) ?? 20000.0,
         routineNotes: routineText,
-        meals: _generatedMeals,
+        rutinitas: rutinitas,
+        meals: approvedMeals,
         reminders: sortedReminders,
         aiNotes: [..._aiMessages, ...result.messages],
+        createdAt: _now(),
       );
 
       Navigator.pop(context, plan);
@@ -711,6 +735,7 @@ class _CareWizardPageState extends State<CareWizardPage> {
                 const Eyebrow('INFORMASI RESEP'),
                 const SizedBox(height: 12),
                 Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Expanded(
                       child: CalendarDateField(
@@ -720,12 +745,50 @@ class _CareWizardPageState extends State<CareWizardPage> {
                     ),
                     const SizedBox(width: 10),
                     Expanded(
-                      child: CalendarDateField(
-                        label: 'Mulai minum',
+                      child: TimePickerField(
+                        label: 'Jam mulai minum',
                         controller: _prescriptionStartCtrl,
                       ),
                     ),
                   ],
+                ),
+                const SizedBox(height: 10),
+                Wrap(
+                  spacing: 6,
+                  runSpacing: 6,
+                  children: [
+                    ActionChip(
+                      visualDensity: VisualDensity.compact,
+                      label: const Text(
+                        'Sekarang',
+                        style: TextStyle(fontSize: 11.5),
+                      ),
+                      backgroundColor: slate,
+                      onPressed: () => setState(() {
+                        _prescriptionStartCtrl.text = formatTime24h(_now());
+                      }),
+                    ),
+                    for (final preset in ['08:00', '13:00', '19:00'])
+                      ActionChip(
+                        visualDensity: VisualDensity.compact,
+                        label: Text(
+                          preset,
+                          style: const TextStyle(fontSize: 11.5),
+                        ),
+                        backgroundColor:
+                            _prescriptionStartCtrl.text.trim() == preset
+                            ? paleTeal
+                            : slate,
+                        onPressed: () => setState(() {
+                          _prescriptionStartCtrl.text = preset;
+                        }),
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                const Text(
+                  'Obat mulai diminum hari ini pada jam tersebut, lalu disesuaikan otomatis pada hari esoknya sampai stok obat habis.',
+                  style: TextStyle(fontSize: 12, color: muted, height: 1.4),
                 ),
                 const SizedBox(height: 12),
                 TextFormField(
@@ -1010,6 +1073,11 @@ class _CareWizardPageState extends State<CareWizardPage> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 const Eyebrow('BUDGET MAKANAN HARIAN'),
+                const SizedBox(height: 4),
+                const Text(
+                  'Anggaran belanja 1 hari penuh (3 kali makan). Minimal Rp 10.000.',
+                  style: TextStyle(fontSize: 12.5, color: muted),
+                ),
                 const SizedBox(height: 10),
                 Wrap(
                   spacing: 7,
@@ -1038,7 +1106,7 @@ class _CareWizardPageState extends State<CareWizardPage> {
                   onChanged: (_) => setState(() {}),
                   decoration: const InputDecoration(
                     labelText: 'Budget makanan (Rupiah)',
-                    hintText: 'Contoh: 75000',
+                    hintText: 'Minimal 10000 (contoh: 50000)',
                     prefixText: 'Rp ',
                     prefixIcon: Icon(
                       Icons.account_balance_wallet_outlined,
@@ -1046,12 +1114,45 @@ class _CareWizardPageState extends State<CareWizardPage> {
                     ),
                   ),
                 ),
-                const SizedBox(height: 14),
+              ],
+            ),
+          ),
+          const SizedBox(height: 16),
+          Surface(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Eyebrow('RUTINITAS HARIAN PASIEN'),
+                const SizedBox(height: 4),
+                const Text(
+                  'Digunakan AI agar jadwal makan dan obat tidak bentrok dengan jam tidur.',
+                  style: TextStyle(fontSize: 12.5, color: muted),
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(
+                      child: TimePickerField(
+                        label: 'Jam bangun',
+                        controller: _wakeTimeCtrl,
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: TimePickerField(
+                        label: 'Jam tidur',
+                        controller: _sleepTimeCtrl,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
                 TextFormField(
                   controller: _routineCtrl,
                   decoration: const InputDecoration(
-                    labelText: 'Catatan jam makan / rutinitas (opsional)',
-                    hintText: 'Contoh: Sarapan pukul 07:00, makan siang 12:30',
+                    labelText: 'Preferensi waktu makan (opsional)',
+                    hintText: 'Contoh: Sarapan 07:00, Siang 12:30, Malam 18:30',
                     prefixIcon: Icon(Icons.schedule_rounded, color: teal),
                   ),
                 ),

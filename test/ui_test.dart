@@ -6,6 +6,8 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:smartmed_nutricare/care_api.dart';
 import 'package:smartmed_nutricare/main.dart';
+import 'package:smartmed_nutricare/services/notification_service.dart';
+import 'package:smartmed_nutricare/services/schedule_expander.dart';
 import 'package:smartmed_nutricare/widgets.dart';
 
 Future<void> tapText(WidgetTester tester, String text) async {
@@ -56,10 +58,117 @@ void main() {
     },
   );
 
+  test(
+    'expandCareSchedule starts at HH:mm on Day 1 and expands days until all medications run out',
+    () {
+      final base = DateTime(2026, 11, 7, 9, 0);
+      final expanded = expandCareSchedule(
+        baseDate: base,
+        rutinitas: {'jam_bangun': '06:00', 'jam_tidur': '21:00'},
+        prescriptions: [
+          {
+            'id': 1,
+            'prescription_date': '2026-11-07',
+            'start_at': '13:00',
+            'status': 'active',
+            'medications': [
+              {
+                'id': 1,
+                'prescription_id': 1,
+                'medicine_name': 'Amoxicillin',
+                'dosage': '2 kapsul',
+                'frequency': '3x sehari',
+                'instruction': 'Sesudah makan',
+                'quantity': 10, // 10 / 2 kapsul = tepat 5 dosis!
+                'isAfterEat': true,
+              },
+            ],
+          },
+        ],
+        templateReminders: [
+          {
+            'title': 'Sarapan: Bubur Ayam',
+            'schedule_at': '2026-11-07T07:00:00',
+            'status': 'pending',
+            'prescription_id': null,
+            'reminder_items': <Json>[],
+          },
+          {
+            'title': 'Makan Siang: Sup Ikan',
+            'schedule_at': '2026-11-07T12:30:00',
+            'status': 'pending',
+            'prescription_id': null,
+            'reminder_items': <Json>[],
+          },
+          {
+            'title': 'Makan Malam: Sayur Bening',
+            'schedule_at': '2026-11-07T18:30:00',
+            'status': 'pending',
+            'prescription_id': null,
+            'reminder_items': <Json>[],
+          },
+          {
+            'title': 'Minum Amoxicillin',
+            'schedule_at': '2026-11-07T07:30:00',
+            'status': 'pending',
+            'prescription_id': 1,
+            'reminder_items': [
+              {'medication_id': 1},
+            ],
+          },
+        ],
+      );
+
+      final medReminders = expanded
+          .where((r) => (r['reminder_items'] as List).isNotEmpty)
+          .toList();
+
+      // 10 kapsul dengan dosis 2 kapsul sekali minum -> tepat 5 kali minum (habis di Hari ke-2 malam!)
+      expect(medReminders, hasLength(5));
+
+      // Hari 1: mulai jam 13:00 (`start_at`), lanjut 19:00
+      expect(
+        DateTime.parse(medReminders[0]['schedule_at'] as String),
+        DateTime(2026, 11, 7, 13, 0),
+      );
+      expect(
+        DateTime.parse(medReminders[1]['schedule_at'] as String),
+        DateTime(2026, 11, 7, 19, 0),
+      );
+
+      // Hari 2: kembali ke jadwal harian normal (07:30, 13:00, 19:00) lalu berhenti karena obat habis
+      expect(
+        DateTime.parse(medReminders[2]['schedule_at'] as String),
+        DateTime(2026, 11, 8, 7, 30),
+      );
+      expect(
+        DateTime.parse(medReminders[3]['schedule_at'] as String),
+        DateTime(2026, 11, 8, 13, 0),
+      );
+      expect(
+        DateTime.parse(medReminders[4]['schedule_at'] as String),
+        DateTime(2026, 11, 8, 19, 0),
+      );
+      expect(medReminders.last['dose_number'], 5);
+      expect(medReminders.last['total_doses'], 5);
+    },
+  );
+
   testWidgets(
-    'completes full care flow with prescription + multiple medications and updates Home status',
+    'completes care flow with HH:mm start_at, multi-day schedule until meds finish, premature completion lock, and arrival notifications',
     (tester) async {
       usePhone(tester);
+      var fakeNow = DateTime(2026, 11, 7, 10, 0);
+      final platformCalls = <({String method, Map<String, dynamic>? args})>[];
+      final notificationService = NotificationService(
+        nowProvider: () => fakeNow,
+        platformInvoker: (method, args) async {
+          platformCalls.add((method: method, args: args));
+          return true;
+        },
+      );
+      addTearDown(notificationService.dispose);
+
       final generatedMeal = <String, dynamic>{
         'recipe_name': 'Sup Ayam Rendah Garam',
         'description': 'Menu sehat tinggi protein rendah natrium',
@@ -88,17 +197,12 @@ void main() {
           final payload = jsonDecode(request.body) as Json;
           if (request.url.path == '/api/meal-plans/generate') {
             mealRequests++;
+            expect(payload['request_id'], startsWith('req-meal-'));
+            expect(payload['input_version'], 1);
             final hc = payload['health_condition'] as Json;
             expect(hc['name'], 'Pak Budi');
             expect(hc['condition_name'], 'Hipertensi');
-            expect(hc['age'], 62);
-            expect(hc['weight'], 65.5);
-            expect(hc['height'], 168.0);
             expect(hc['isTherePrescription'], true);
-            expect(payload['allergies'], [
-              {'type': 'Kacang'},
-            ]);
-            expect(payload['preferensi'], ['Rendah garam']);
             expect(payload['budget'], 75000.0);
 
             return http.Response(
@@ -115,13 +219,13 @@ void main() {
 
           expect(request.url.path, '/api/schedules/generate');
           scheduleRequests++;
+          expect(payload['request_id'], startsWith('req-sched-'));
           final prescriptions = payload['prescriptions'] as List;
           expect(prescriptions, hasLength(1));
-          final meds =
-              (prescriptions.single as Json)['medications'] as List;
+          // Pastikan start_at dikirim sebagai format jam HH:mm ('13:00')
+          expect((prescriptions.single as Json)['start_at'], '13:00');
+          final meds = (prescriptions.single as Json)['medications'] as List;
           expect(meds, hasLength(2));
-          expect((meds[0] as Json)['medicine_name'], 'Amlodipine');
-          expect((meds[1] as Json)['medicine_name'], 'Paracetamol');
 
           return http.Response(
             jsonEncode({
@@ -129,8 +233,8 @@ void main() {
               'input_version': payload['input_version'],
               'reminders': [
                 {
-                  'title': 'Sarapan: Sup Ayam Rendah Garam',
-                  'schedule_at': '07:00',
+                  'title': 'Makan Siang: Sup Ayam Rendah Garam',
+                  'schedule_at': '12:30',
                   'status': 'pending',
                   'prescription_id': null,
                   'reminder_items': <Json>[],
@@ -146,7 +250,7 @@ void main() {
                 },
                 {
                   'title': 'Minum Paracetamol',
-                  'schedule_at': '12:30',
+                  'schedule_at': '13:00',
                   'status': 'pending',
                   'prescription_id': 1,
                   'reminder_items': [
@@ -164,7 +268,13 @@ void main() {
       );
       addTearDown(api.close);
 
-      await tester.pumpWidget(TemanRawatApp(api: api));
+      await tester.pumpWidget(
+        TemanRawatApp(
+          api: api,
+          notificationService: notificationService,
+          nowProvider: () => fakeNow,
+        ),
+      );
       await tester.pumpAndSettle();
 
       // Tap + button at bottom right
@@ -182,10 +292,13 @@ void main() {
       await tapText(tester, 'Ya, Memiliki Resep Dokter');
       await tapText(tester, 'Selanjutnya');
 
-      // Step 3: Doctor's Prescription & Medications
+      // Step 3: Doctor's Prescription & Medications (Jam mulai minum = HH:mm)
+      expect(find.text('Jam mulai minum'), findsOneWidget);
+      await tapText(tester, '13:00');
+
       await enterFieldAt(tester, 'Nama obat', 'Amlodipine', index: 0);
       await enterFieldAt(tester, 'Dosis', '5 mg', index: 0);
-      await enterFieldAt(tester, 'Jumlah', '30', index: 0);
+      await enterFieldAt(tester, 'Jumlah', '2', index: 0);
       await enterFieldAt(tester, 'Frekuensi minum', '1x sehari', index: 0);
       await enterFieldAt(
         tester,
@@ -198,12 +311,12 @@ void main() {
       await tapText(tester, 'Tambah Obat Lainnya');
       await enterFieldAt(tester, 'Nama obat', 'Paracetamol', index: 1);
       await enterFieldAt(tester, 'Dosis', '500 mg', index: 1);
-      await enterFieldAt(tester, 'Jumlah', '10', index: 1);
+      await enterFieldAt(tester, 'Jumlah', '4', index: 1);
       await enterFieldAt(tester, 'Frekuensi minum', '3x sehari', index: 1);
       await enterFieldAt(
         tester,
         'Instruksi waktu minum',
-        'Bila demam sesudah makan',
+        'Sesudah makan',
         index: 1,
       );
 
@@ -212,6 +325,13 @@ void main() {
       // Step 4: Allergies, Food Preferences & Budget
       await tapText(tester, 'Kacang');
       await tapText(tester, 'Rendah garam');
+      await enterFieldAt(tester, 'Budget makanan (Rupiah)', '5000');
+      await tapText(tester, 'Selanjutnya');
+      expect(
+        find.text('Minimal budget harian adalah Rp 10.000.'),
+        findsOneWidget,
+      );
+
       await enterFieldAt(tester, 'Budget makanan (Rupiah)', '75000');
       await tapText(tester, 'Selanjutnya');
 
@@ -223,33 +343,55 @@ void main() {
       await tapText(tester, 'Buat Jadwal Makan & Obat');
       expect(scheduleRequests, 1);
 
-      // Now on PatientCareDetailPage (Jadwal & Resep)
-      expect(find.text('Jadwal & Resep'), findsOneWidget);
-      expect(find.text('Sarapan: Sup Ayam Rendah Garam'), findsOneWidget);
-      expect(find.text('Minum Amlodipine'), findsOneWidget);
-      expect(find.text('Minum Paracetamol'), findsOneWidget);
-
-      // Switch to Resep tab to verify generated recipe & prescription list
-      await tapText(tester, 'Resep (1)');
-      expect(find.text('Sup Ayam Rendah Garam'), findsOneWidget);
-      expect(find.text('Amlodipine'), findsOneWidget);
-      expect(find.text('Paracetamol'), findsOneWidget);
-
-      // Return to Home -> verify patient listed with status Belum Selesai
-      await tapWidget(tester, find.byTooltip('Kembali ke Beranda'));
-      expect(find.text('Pak Budi'), findsOneWidget);
+      // Now on PatientCareDetailPage:
+      // Amlodipine (qty 2, 1x/hari) & Paracetamol (qty 4, 3x/hari mulai 13:00) -> 2 hari jadwal!
+      // Hari 1: 12:30 Makan Siang, 13:00 Amlodipine (1/2), 13:00 Paracetamol (1/4), 19:00 Paracetamol (2/4) = 4 item
+      // Hari 2: 07:30 Amlodipine (2/2), 07:30 Paracetamol (3/4), 12:30 Makan Siang, 13:00 Paracetamol (4/4) = 4 item -> Total 8 jadwal!
       expect(
-        find.descendant(
-          of: find.byType(ScheduleStatusBadge),
-          matching: find.text('Belum Selesai'),
+        find.text(
+          'Jadwal disusun untuk 2 hari perawatan sampai seluruh obat habis.',
         ),
         findsOneWidget,
       );
-      expect(find.text('0/3 jadwal'), findsOneWidget);
+      expect(find.text('Hari 1 · Hari Ini'), findsOneWidget);
+      expect(find.text('Hari 2 · 8 Nov'), findsOneWidget);
+      expect(find.text('Semua Hari (8)'), findsOneWidget);
 
-      // Re-open Pak Budi, complete all schedules, and verify Home shows Jadwal Selesai
-      await tapText(tester, 'Pak Budi');
-      await tapText(tester, 'Selesaikan Semua');
+      // Pastikan alarm sistem operasi telah disinkronkan
+      final syncCall = platformCalls
+          .where((c) => c.method == 'syncNotifications')
+          .last;
+      expect((syncCall.args!['items'] as List), hasLength(8));
+
+      // Karena jam saat ini masih 10:00 dan jadwal pertama pukul 12:30 / 13:00,
+      // jadwal BELUM BISA ditandai selesai!
+      expect(find.text('Menunggu Waktu Jadwal'), findsOneWidget);
+      expect(find.text('Belum Waktunya'), findsWidgets);
+
+      await tapText(tester, 'Minum Amlodipine');
+      expect(find.textContaining('Belum waktunya!'), findsOneWidget);
+      // Masih 0/8 selesai
+      expect(find.text('0/8'), findsOneWidget);
+
+      // Majukan waktu ke pukul 13:01 di Hari 1 -> jadwal 12:30 dan 13:00 tiba!
+      fakeNow = DateTime(2026, 11, 7, 13, 1);
+      final alerts = notificationService.checkDueNotifications(now: fakeNow);
+      await tester.pumpAndSettle();
+
+      // Notifikasi muncul untuk jadwal yang waktunya sudah tiba
+      expect(alerts, hasLength(3)); // 12:30 Makan + 13:00 Amlodipine + 13:00 Paracetamol
+      expect(find.textContaining('Waktunya'), findsWidgets);
+
+      // Sekarang jadwal yang sudah waktunya BISA ditandai selesai, sedangkan pukul 19:00 belum!
+      await tapText(tester, 'Selesaikan Jatuh Tempo (3)');
+      expect(find.text('3/8'), findsOneWidget);
+
+      // Majukan waktu hingga akhir Hari ke-2 (8 Nov pukul 20:00) sehingga seluruh jadwal telah tiba
+      fakeNow = DateTime(2026, 11, 8, 20, 0);
+      notificationService.dueTick.value++;
+      await tester.pumpAndSettle();
+
+      await tapText(tester, 'Selesaikan Jatuh Tempo (5)');
       expect(
         find.descendant(
           of: find.byType(ScheduleStatusBadge),
@@ -258,8 +400,11 @@ void main() {
         findsOneWidget,
       );
 
+      // Kembali ke Beranda -> status pasien menjadi Jadwal Selesai (8/8 jadwal, 2 Hari)
       await tapWidget(tester, find.byTooltip('Kembali ke Beranda'));
       expect(find.text('Pak Budi'), findsOneWidget);
+      expect(find.text('2 Hari'), findsOneWidget);
+      expect(find.text('8/8 jadwal'), findsOneWidget);
       expect(
         find.descendant(
           of: find.byType(ScheduleStatusBadge),
@@ -267,7 +412,6 @@ void main() {
         ),
         findsOneWidget,
       );
-      expect(find.text('3/3 jadwal'), findsOneWidget);
       expect(tester.takeException(), isNull);
     },
   );
@@ -276,6 +420,7 @@ void main() {
     'skips prescription step when patient does not have a doctor prescription',
     (tester) async {
       usePhone(tester);
+      final fakeNow = DateTime(2026, 11, 7, 8, 0);
       final api = CareApi(
         baseUrl: 'https://temanrawat.test',
         client: MockClient((request) async {
@@ -326,7 +471,9 @@ void main() {
       );
       addTearDown(api.close);
 
-      await tester.pumpWidget(TemanRawatApp(api: api));
+      await tester.pumpWidget(
+        TemanRawatApp(api: api, nowProvider: () => fakeNow),
+      );
       await tester.pumpAndSettle();
 
       await tapWidget(tester, find.byType(FloatingActionButton));

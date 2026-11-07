@@ -199,64 +199,108 @@ void main() {
     },
   );
 
-  test('SqliteCarePlanStore menyimpan dan memperbarui status jadwal pasien', () async {
-    final store = SqliteCarePlanStore(dbHelper: dbHelper);
-    final plan = PatientCarePlan(
-      id: 'patient-1',
-      patientName: 'Ibu Sari',
-      healthCondition: {
-        'condition_name': 'Hipertensi',
-        'name': 'Ibu Sari',
-        'age': 60,
-        'weight': 55.0,
-        'height': 155.0,
-        'isTherePrescription': false,
-      },
-      prescriptions: const [],
-      allergies: const [],
-      preferensi: const ['Rendah garam'],
-      budget: 50000,
-      meals: const [
-        {
-          'recipe_name': 'Sup Ayam',
-          'servings': 1,
-          'cooking_time': 20,
-          'instructions': 'Rebus ayam.',
-          'ingredients': [],
+  test(
+    'SqliteCarePlanStore menyinkronkan 1-ke-1 ke tabel SQLite dan memperbarui status jadwal',
+    () async {
+      final store = SqliteCarePlanStore(dbHelper: dbHelper);
+      final plan = PatientCarePlan(
+        id: 'patient-1',
+        patientName: 'Ibu Sari',
+        healthCondition: {
+          'condition_name': 'Hipertensi',
+          'name': 'Ibu Sari',
+          'age': 60,
+          'weight': 55.0,
+          'height': 155.0,
+          'isTherePrescription': true,
         },
-      ],
-      reminders: const [
-        {
-          'title': 'Sarapan Sup Ayam',
-          'schedule_at': '2026-11-07T07:00:00',
-          'status': 'pending',
-          'reminder_items': [],
-        },
-      ],
-    );
+        prescriptions: const [
+          {
+            'prescription_date': '2026-11-07',
+            'start_at': '08:00',
+            'status': 'active',
+            'notes': null,
+            'medications': [
+              {
+                'medicine_name': 'Amlodipine',
+                'dosage': '5 mg',
+                'frequency': '1x sehari',
+                'instruction': 'Pagi hari',
+                'quantity': 30,
+                'notes': null,
+                'isAfterEat': true,
+              },
+            ],
+          },
+        ],
+        allergies: const [
+          {'type': 'Udang'},
+        ],
+        preferensi: const ['Rendah garam'],
+        budget: 50000,
+        meals: const [
+          {
+            'recipe_name': 'Sup Ayam',
+            'servings': 1,
+            'cooking_time': 20,
+            'instructions': 'Rebus ayam.',
+            'ingredients': [
+              {'ingredient_name': 'Ayam', 'quantity': '100 g'},
+            ],
+            'nutrition': {
+              'calories': 210.0,
+              'protein': 20.0,
+              'carbohydrates': 10.0,
+              'fat': 5.0,
+            },
+          },
+        ],
+        reminders: const [
+          {
+            'title': 'Sarapan Sup Ayam',
+            'schedule_at': '2026-11-07T07:00:00',
+            'status': 'pending',
+            'prescription_id': null,
+            'reminder_items': [],
+          },
+          {
+            'title': 'Minum Amlodipine',
+            'schedule_at': '2026-11-07T07:30:00',
+            'status': 'pending',
+            'prescription_id': 1,
+            'reminder_items': [
+              {'medication_id': 1},
+            ],
+          },
+        ],
+      );
 
-    await store.save(plan);
-    var loaded = await store.loadAll();
-    expect(loaded, hasLength(1));
-    expect(loaded.first.patientName, 'Ibu Sari');
-    expect(loaded.first.isScheduleCompleted, isFalse);
+      final synced = await store.save(plan);
+      expect(synced.healthCondition['id'], isNotNull);
+      expect((await healthRepo.getAll()).map((e) => e.name), contains('Ibu Sari'));
+      expect((await allergyRepo.getAll()).map((e) => e.type), contains('Udang'));
+      expect(await recipeRepo.getAllRecipes(), hasLength(1));
+      expect(await prescriptionRepo.getAllPrescriptions(), hasLength(1));
+      expect(await prescriptionRepo.getAllReminders(), hasLength(2));
 
-    final completed = plan.copyWith(
-      reminders: const [
-        {
-          'title': 'Sarapan Sup Ayam',
-          'schedule_at': '2026-11-07T07:00:00',
-          'status': 'completed',
-          'reminder_items': [],
-        },
-      ],
-    );
-    await store.save(completed);
-    loaded = await store.loadAll();
-    expect(loaded.first.isScheduleCompleted, isTrue);
+      final completed = synced.copyWith(
+        reminders: [
+          for (final r in synced.reminders) {...r, 'status': 'completed'},
+        ],
+      );
+      await store.save(completed);
+      final loaded = await store.loadAll();
+      expect(loaded.first.isScheduleCompleted, isTrue);
+      final dbReminders = await prescriptionRepo.getAllReminders();
+      expect(dbReminders.every((r) => r.status == 'completed'), isTrue);
 
-    await store.delete('patient-1');
-    expect(await store.loadAll(), isEmpty);
-  });
+      await store.delete('patient-1');
+      expect(await store.loadAll(), isEmpty);
+      expect(await healthRepo.getAll(), isEmpty);
+      expect(await recipeRepo.getAllRecipes(), isEmpty);
+      expect(await prescriptionRepo.getAllPrescriptions(), isEmpty);
+      expect(await prescriptionRepo.getAllReminders(), isEmpty);
+    },
+  );
 }
 

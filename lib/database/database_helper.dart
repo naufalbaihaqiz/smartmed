@@ -103,6 +103,21 @@ class DatabaseHelper {
     if (oldVersion < 4) {
       await db.execute(DatabaseTables.createCarePlansTable);
     }
+    if (oldVersion < 5) {
+      await db.execute('ALTER TABLE ${DatabaseTables.reminders} RENAME TO reminders_old');
+      await db.execute(DatabaseTables.createRemindersTable);
+      await db.execute('''
+        INSERT INTO ${DatabaseTables.reminders} (id, prescription_id, title, schedule_at, status, created_at)
+        SELECT id, prescription_id, title, schedule_at, status, created_at FROM reminders_old
+      ''');
+      await db.execute('DROP TABLE reminders_old');
+      await db.execute(
+        'CREATE INDEX IF NOT EXISTS idx_reminders_prescription_id ON ${DatabaseTables.reminders} (prescription_id)',
+      );
+      await db.execute(
+        'CREATE INDEX IF NOT EXISTS idx_reminders_schedule_at ON ${DatabaseTables.reminders} (schedule_at)',
+      );
+    }
   }
 
   /// Menutup koneksi database yang sedang aktif.

@@ -106,7 +106,7 @@ class WebDemo {
           {
             'id': 1,
             'prescription_date': today,
-            'start_at': today,
+            'start_at': '07:30',
             'status': 'active',
             'notes': 'Kontrol tekanan darah rutin',
             'medications': [
