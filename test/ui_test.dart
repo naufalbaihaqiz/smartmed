@@ -154,6 +154,118 @@ void main() {
     },
   );
 
+  test(
+    'expandCareSchedule menggabungkan obat dengan isAfterEat sama di waktu yang sama, dan memisahkan obat beda isAfterEat minimal 35 menit di sesi sama',
+    () {
+      final base = DateTime(2026, 11, 7, 6, 0);
+      final expanded = expandCareSchedule(
+        baseDate: base,
+        rutinitas: {'jam_bangun': '06:00', 'jam_tidur': '21:00'},
+        prescriptions: [
+          {
+            'id': 1,
+            'prescription_date': '2026-11-07',
+            'start_at': '07:00',
+            'status': 'active',
+            'medications': [
+              {
+                'id': 10,
+                'prescription_id': 1,
+                'medicine_name': 'Omeprazole',
+                'dosage': '1 kapsul',
+                'frequency': '1x sehari',
+                'instruction': 'Sebelum makan',
+                'quantity': 1,
+                'isAfterEat': false,
+              },
+              {
+                'id': 20,
+                'prescription_id': 1,
+                'medicine_name': 'Amlodipine',
+                'dosage': '1 tablet',
+                'frequency': '1x sehari',
+                'instruction': 'Sesudah makan',
+                'quantity': 1,
+                'isAfterEat': true,
+              },
+              {
+                'id': 30,
+                'prescription_id': 1,
+                'medicine_name': 'Paracetamol',
+                'dosage': '1 tablet',
+                'frequency': '1x sehari',
+                'instruction': 'Sesudah makan',
+                'quantity': 1,
+                'isAfterEat': true,
+              },
+            ],
+          },
+        ],
+        templateReminders: [
+          {
+            'title': 'Minum Omeprazole',
+            'schedule_at': '2026-11-07T07:00:00',
+            'status': 'pending',
+            'prescription_id': 1,
+            'reminder_items': [
+              {'medication_id': 10},
+            ],
+          },
+          {
+            'title': 'Waktu Sarapan',
+            'schedule_at': '2026-11-07T07:05:00',
+            'status': 'pending',
+            'prescription_id': null,
+            'reminder_items': <Json>[],
+          },
+          {
+            'title': 'Minum Amlodipine',
+            'schedule_at': '2026-11-07T07:35:00',
+            'status': 'pending',
+            'prescription_id': 1,
+            'reminder_items': [
+              {'medication_id': 20},
+            ],
+          },
+          {
+            'title': 'Minum Paracetamol',
+            'schedule_at': '2026-11-07T07:35:00',
+            'status': 'pending',
+            'prescription_id': 1,
+            'reminder_items': [
+              {'medication_id': 30},
+            ],
+          },
+        ],
+      );
+
+      final medReminders = expanded
+          .where((r) => (r['reminder_items'] as List).isNotEmpty)
+          .toList();
+
+      // Omeprazole (sebelum makan) di 07:00
+      // Amlodipine & Paracetamol (keduanya sesudah makan pada 07:35) digabung jadi 1 card!
+      // Total reminder obat menjadi tepat 2 card!
+      expect(medReminders, hasLength(2));
+
+      final omeprazoleCard = medReminders[0];
+      final afterEatComboCard = medReminders[1];
+
+      expect(omeprazoleCard['title'], contains('Omeprazole'));
+      expect((omeprazoleCard['reminder_items'] as List), hasLength(1));
+
+      // Amlodipine & Paracetamol digabung karena isAfterEat sama (true) dan jam sama (07:35)
+      expect(afterEatComboCard['title'], contains('Amlodipine'));
+      expect(afterEatComboCard['title'], contains('Paracetamol'));
+      expect((afterEatComboCard['reminder_items'] as List), hasLength(2));
+
+      // Verifikasi jarak antara obat sebelum makan (07:00) dan sesudah makan (07:35) tepat 35 menit
+      final dtBefore = DateTime.parse(omeprazoleCard['schedule_at'] as String);
+      final dtAfter = DateTime.parse(afterEatComboCard['schedule_at'] as String);
+      expect(dtAfter.difference(dtBefore).inMinutes, greaterThanOrEqualTo(35));
+    },
+  );
+
   testWidgets(
     'completes care flow with HH:mm start_at, multi-day schedule until meds finish, premature completion lock, and arrival notifications',
     (tester) async {
@@ -355,36 +467,45 @@ void main() {
       );
       expect(find.text('Hari 1 · Hari Ini'), findsOneWidget);
       expect(find.text('Hari 2 · 8 Nov'), findsOneWidget);
-      expect(find.text('Semua Hari (8)'), findsOneWidget);
+      // Dua obat pada jam 13:00 Hari 1 digabungkan ke 1 card -> total 7 jadwal
+      expect(find.text('Semua Hari (7)'), findsOneWidget);
+
+      // Verifikasi tombol "Lihat Rekomendasi Menu & Resep" pada card jadwal makan
+      expect(find.text('Lihat Rekomendasi Menu & Resep'), findsWidgets);
+      await tapText(tester, 'Lihat Rekomendasi Menu & Resep');
+      // Berpindah ke tab Resep
+      expect(find.text('DAFTAR RESEP MAKANAN YANG DIGENERATE'), findsOneWidget);
+      // Kembali ke tab Jadwal
+      await tapText(tester, 'Jadwal (7)');
 
       // Pastikan alarm sistem operasi telah disinkronkan
       final syncCall = platformCalls
           .where((c) => c.method == 'syncNotifications')
           .last;
-      expect((syncCall.args!['items'] as List), hasLength(8));
+      expect((syncCall.args!['items'] as List), hasLength(7));
 
       // Karena jam saat ini masih 10:00 dan jadwal pertama pukul 12:30 / 13:00,
       // jadwal BELUM BISA ditandai selesai!
       expect(find.text('Menunggu Waktu Jadwal'), findsOneWidget);
       expect(find.text('Belum Waktunya'), findsWidgets);
 
-      await tapText(tester, 'Minum Amlodipine');
+      await tapText(tester, 'Minum Amlodipine & Paracetamol');
       expect(find.textContaining('Belum waktunya!'), findsOneWidget);
-      // Masih 0/8 selesai
-      expect(find.text('0/8'), findsOneWidget);
+      // Masih 0/7 selesai
+      expect(find.text('0/7'), findsOneWidget);
 
       // Majukan waktu ke pukul 13:01 di Hari 1 -> jadwal 12:30 dan 13:00 tiba!
       fakeNow = DateTime(2026, 11, 7, 13, 1);
       final alerts = notificationService.checkDueNotifications(now: fakeNow);
       await tester.pumpAndSettle();
 
-      // Notifikasi muncul untuk jadwal yang waktunya sudah tiba
-      expect(alerts, hasLength(3)); // 12:30 Makan + 13:00 Amlodipine + 13:00 Paracetamol
+      // Notifikasi muncul untuk jadwal yang waktunya sudah tiba (12:30 Makan + 13:00 Gabungan Obat)
+      expect(alerts, hasLength(2));
       expect(find.textContaining('Waktunya'), findsWidgets);
 
       // Sekarang jadwal yang sudah waktunya BISA ditandai selesai, sedangkan pukul 19:00 belum!
-      await tapText(tester, 'Selesaikan Jatuh Tempo (3)');
-      expect(find.text('3/8'), findsOneWidget);
+      await tapText(tester, 'Selesaikan Jatuh Tempo (2)');
+      expect(find.text('2/7'), findsOneWidget);
 
       // Majukan waktu hingga akhir Hari ke-2 (8 Nov pukul 20:00) sehingga seluruh jadwal telah tiba
       fakeNow = DateTime(2026, 11, 8, 20, 0);
@@ -400,11 +521,11 @@ void main() {
         findsOneWidget,
       );
 
-      // Kembali ke Beranda -> status pasien menjadi Jadwal Selesai (8/8 jadwal, 2 Hari)
+      // Kembali ke Beranda -> status pasien menjadi Jadwal Selesai (7/7 jadwal, 2 Hari)
       await tapWidget(tester, find.byTooltip('Kembali ke Beranda'));
       expect(find.text('Pak Budi'), findsOneWidget);
       expect(find.text('2 Hari'), findsOneWidget);
-      expect(find.text('8/8 jadwal'), findsOneWidget);
+      expect(find.text('7/7 jadwal'), findsOneWidget);
       expect(
         find.descendant(
           of: find.byType(ScheduleStatusBadge),

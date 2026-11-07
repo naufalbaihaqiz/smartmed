@@ -225,7 +225,6 @@ class _CareWizardPageState extends State<CareWizardPage> {
     if (!_hasPrescription) return const [];
     return [
       {
-        'id': 1,
         'prescription_date': _prescriptionDateCtrl.text.trim(),
         'start_at': _prescriptionStartCtrl.text.trim(),
         'status': 'active',
@@ -235,8 +234,6 @@ class _CareWizardPageState extends State<CareWizardPage> {
         'medications': [
           for (var i = 0; i < _medications.length; i++)
             {
-              'id': i + 1,
-              'prescription_id': 1,
               'medicine_name': _medications[i].name.text.trim(),
               'dosage': _medications[i].dosage.text.trim(),
               'frequency': _medications[i].frequency.text.trim(),
@@ -328,7 +325,7 @@ class _CareWizardPageState extends State<CareWizardPage> {
           ? await widget.store!.persistPrescriptions(
               _buildPrescriptionsPayload(),
             )
-          : _buildPrescriptionsPayload();
+          : assignPrescriptionIds(_buildPrescriptionsPayload());
 
       final result = await widget.api.generateSchedule({
         'menu_disetujui': approvedMeals,

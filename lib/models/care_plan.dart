@@ -294,6 +294,38 @@ List<Json> assignMealIds(List<Json> meals) {
   ];
 }
 
+/// Menetapkan ID berurutan pada daftar resep obat bila belum memiliki ID SQLite.
+List<Json> assignPrescriptionIds(
+  List<Json> prescriptions, {
+  int startPrescId = 1,
+  int startMedId = 1,
+}) {
+  var pId = startPrescId;
+  var mId = startMedId;
+  return [
+    for (final p in prescriptions)
+      () {
+        final currentPrescId = (p['id'] as num?)?.toInt() ?? pId++;
+        final rawMeds = (p['medications'] as List? ?? const [])
+            .whereType<Map>()
+            .toList();
+        final meds = <Json>[
+          for (final m in rawMeds)
+            {
+              ...m,
+              'id': (m['id'] as num?)?.toInt() ?? mId++,
+              'prescription_id': currentPrescId,
+            },
+        ];
+        return <String, dynamic>{
+          ...p,
+          'id': currentPrescId,
+          'medications': meds,
+        };
+      }(),
+  ];
+}
+
 /// Abstraksi penyimpanan daftar orang yang dirawat beserta sinkronisasi entitasnya.
 abstract class CarePlanStore {
   Future<List<PatientCarePlan>> loadAll();
@@ -317,14 +349,28 @@ class MemoryCarePlanStore extends CarePlanStore {
     : _items = List<PatientCarePlan>.from(initial ?? const []);
 
   final List<PatientCarePlan> _items;
+  int _memMedCounter = 100;
+  int _memPrescCounter = 100;
 
   @override
   Future<List<PatientCarePlan>> loadAll() async =>
       List<PatientCarePlan>.unmodifiable(_items);
 
   @override
+  Future<List<Json>> persistPrescriptions(List<Json> prescriptions) async {
+    return assignPrescriptionIds(
+      prescriptions,
+      startPrescId: _memPrescCounter += 10,
+      startMedId: _memMedCounter += 20,
+    );
+  }
+
+  @override
   Future<PatientCarePlan> save(PatientCarePlan plan) async {
-    final normalized = plan.copyWith(meals: assignMealIds(plan.meals));
+    final normalized = plan.copyWith(
+      meals: assignMealIds(plan.meals),
+      prescriptions: assignPrescriptionIds(plan.prescriptions),
+    );
     final index = _items.indexWhere((item) => item.id == normalized.id);
     if (index >= 0) {
       _items[index] = normalized;
@@ -456,6 +502,7 @@ class SqliteCarePlanStore extends CarePlanStore {
     final nowIso = DateTime.now().toIso8601String();
     for (final p in prescriptions) {
       final existingId = (p['id'] as num?)?.toInt();
+      int prescriptionId;
       if (existingId != null) {
         final existingRows = await txn.query(
           DatabaseTables.prescription,
@@ -464,35 +511,70 @@ class SqliteCarePlanStore extends CarePlanStore {
           limit: 1,
         );
         if (existingRows.isNotEmpty) {
-          savedPrescriptions.add(p);
-          continue;
+          prescriptionId = existingId;
+        } else {
+          prescriptionId = await txn.insert(DatabaseTables.prescription, {
+            'id': existingId,
+            'prescription_date': p['prescription_date'] as String,
+            'notes': p['notes'] as String?,
+            'status': (p['status'] as String?) ?? 'active',
+            'start_at': p['start_at'] as String?,
+            'created_at': nowIso,
+          });
         }
+      } else {
+        prescriptionId = await txn.insert(DatabaseTables.prescription, {
+          'prescription_date': p['prescription_date'] as String,
+          'notes': p['notes'] as String?,
+          'status': (p['status'] as String?) ?? 'active',
+          'start_at': p['start_at'] as String?,
+          'created_at': nowIso,
+        });
       }
-
-      final prescriptionId = await txn.insert(DatabaseTables.prescription, {
-        'prescription_date': p['prescription_date'] as String,
-        'notes': p['notes'] as String?,
-        'status': (p['status'] as String?) ?? 'active',
-        'start_at': p['start_at'] as String?,
-        'created_at': nowIso,
-      });
 
       final rawMeds = (p['medications'] as List? ?? const [])
           .whereType<Map>()
           .toList();
       final savedMeds = <Json>[];
       for (final m in rawMeds) {
-        final medId = await txn.insert(DatabaseTables.medications, {
-          'prescription_id': prescriptionId,
-          'medicine_name': m['medicine_name'] as String,
-          'dosage': m['dosage'] as String?,
-          'frequency': m['frequency'] as String?,
-          'instruction': m['instruction'] as String?,
-          'quantity': (m['quantity'] as num?)?.toInt(),
-          'notes': m['notes'] as String?,
-          'isAfterEat': m['isAfterEat'] == true ? 1 : 0,
-          'created_at': nowIso,
-        });
+        final existingMedId = (m['id'] as num?)?.toInt();
+        int medId;
+        if (existingMedId != null) {
+          final existingMedRows = await txn.query(
+            DatabaseTables.medications,
+            where: 'id = ?',
+            whereArgs: [existingMedId],
+            limit: 1,
+          );
+          if (existingMedRows.isNotEmpty) {
+            medId = existingMedId;
+          } else {
+            medId = await txn.insert(DatabaseTables.medications, {
+              'id': existingMedId,
+              'prescription_id': prescriptionId,
+              'medicine_name': m['medicine_name'] as String,
+              'dosage': m['dosage'] as String?,
+              'frequency': m['frequency'] as String?,
+              'instruction': m['instruction'] as String?,
+              'quantity': (m['quantity'] as num?)?.toInt(),
+              'notes': m['notes'] as String?,
+              'isAfterEat': m['isAfterEat'] == true ? 1 : 0,
+              'created_at': nowIso,
+            });
+          }
+        } else {
+          medId = await txn.insert(DatabaseTables.medications, {
+            'prescription_id': prescriptionId,
+            'medicine_name': m['medicine_name'] as String,
+            'dosage': m['dosage'] as String?,
+            'frequency': m['frequency'] as String?,
+            'instruction': m['instruction'] as String?,
+            'quantity': (m['quantity'] as num?)?.toInt(),
+            'notes': m['notes'] as String?,
+            'isAfterEat': m['isAfterEat'] == true ? 1 : 0,
+            'created_at': nowIso,
+          });
+        }
         savedMeds.add({
           ...m,
           'id': medId,

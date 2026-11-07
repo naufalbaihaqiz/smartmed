@@ -673,6 +673,13 @@ class _PatientCareDetailPageState extends State<PatientCareDetailPage> {
                           color: isMed ? medSoft : paleTeal,
                           textColor: isMed ? medAccent : teal,
                         ),
+                        if (isMed && meds.length > 1)
+                          BadgePill(
+                            '${meds.length} Obat',
+                            color: medSoft,
+                            textColor: medAccent,
+                            icon: Icons.medication_rounded,
+                          ),
                         if (showDateBadge && dateBadge.isNotEmpty)
                           BadgePill(
                             dateBadge,
@@ -790,6 +797,32 @@ class _PatientCareDetailPageState extends State<PatientCareDetailPage> {
                     ),
                   ],
                 ],
+              ),
+            ),
+          ],
+          if (!isMed) ...[
+            const SizedBox(height: 12),
+            OutlinedButton.icon(
+              onPressed: () {
+                setState(() => _selectedTab = 1);
+              },
+              style: OutlinedButton.styleFrom(
+                minimumSize: const Size(0, 36),
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                side: const BorderSide(color: Color(0xFFC7E2D1)),
+                backgroundColor: paleTeal.withValues(alpha: 0.45),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
+              ),
+              icon: const Icon(Icons.restaurant_menu_rounded, size: 16, color: teal),
+              label: const Text(
+                'Lihat Rekomendasi Menu & Resep',
+                style: TextStyle(
+                  fontSize: 12.5,
+                  fontWeight: FontWeight.w700,
+                  color: teal,
+                ),
               ),
             ),
           ],

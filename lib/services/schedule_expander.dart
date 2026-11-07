@@ -103,6 +103,15 @@ List<int> _dedupeSortedSlots(Iterable<int> rawSlots) {
   return result;
 }
 
+/// Membersihkan judul jadwal makan agar tidak menampilkan nama masakan
+/// (cukup pengingat makan saja sesuai waktu).
+String cleanMealTitle(String? rawTitle, int minutes) {
+  final hour = minutes ~/ 60;
+  if (hour < 11) return 'Waktu Sarapan';
+  if (hour < 16) return 'Waktu Makan Siang';
+  return 'Waktu Makan Malam';
+}
+
 List<int> _buildDailyMedicationSlots({
   required Json medication,
   required int freq,
@@ -112,7 +121,9 @@ List<int> _buildDailyMedicationSlots({
   required int sleepMinutes,
 }) {
   final isAfterEat = medication['isAfterEat'] != false;
-  final offset = isAfterEat ? 30 : -30;
+  // Jika sebelum makan: obat diminum 5 menit sebelum makan (makan 5 menit setelah obat)
+  // Jika sesudah makan: obat diminum 30 menit setelah makan (makan 30 menit sebelum obat)
+  final offset = isAfterEat ? 30 : -5;
   final instruction = ((medication['instruction'] as String?) ?? '')
       .toLowerCase();
 
@@ -206,15 +217,24 @@ List<Json> expandCareSchedule({
   ];
 
   // Jika tidak ada resep obat, gunakan jadwal 1 hari sebagaimana dikembalikan AI.
+  // Pastikan tidak ada kategori makan yang sama dalam 1 hari.
   if (allMeds.isEmpty) {
-    final singleDay = [
-      for (final r in templateReminders)
-        <String, dynamic>{
-          ...r,
-          'status': (r['status'] as String?) ?? 'pending',
-          'day_number': 1,
-        },
-    ];
+    final seenCategories = <String>{};
+    final singleDay = <Json>[];
+    for (final r in templateReminders) {
+      final mins = parseMinutesOfDay(r['schedule_at'] as String?);
+      final mealTitle = cleanMealTitle(r['title'] as String?, mins);
+      if (seenCategories.contains(mealTitle)) {
+        continue;
+      }
+      seenCategories.add(mealTitle);
+      singleDay.add({
+        ...r,
+        'title': mealTitle,
+        'status': (r['status'] as String?) ?? 'pending',
+        'day_number': 1,
+      });
+    }
     singleDay.sort(
       (a, b) => DateTime.parse(
         a['schedule_at'] as String,
@@ -355,6 +375,7 @@ List<Json> expandCareSchedule({
         'schedule_at': scheduledAt.toIso8601String(),
         'status': 'pending',
         'prescription_id': prescId,
+        'isAfterEat': med['isAfterEat'] == true,
         'reminder_items': [
           if (medId != null) {'medication_id': medId},
         ],
@@ -385,12 +406,21 @@ List<Json> expandCareSchedule({
   }
 
   // Perluas jadwal makan harian mengikuti rentang hari perawatan aktif.
+  // Pastikan: Dalam 1 hari TIDAK BOLEH ada kategori makan yang sama
+  // (maksimal tepat 1 Waktu Sarapan, 1 Waktu Makan Siang, 1 Waktu Makan Malam per hari).
   final expandedMealReminders = <Json>[];
   for (var dayOffset = 0; dayOffset <= maxDayOffset; dayOffset++) {
+    final seenCategoriesThisDay = <String>{};
     for (final mt in mealTemplates) {
       if (dayOffset == 0 && mt.minutes < earliestStartMinutes - 60) {
         continue;
       }
+      final mealTitle = cleanMealTitle(mt.template['title'] as String?, mt.minutes);
+      if (seenCategoriesThisDay.contains(mealTitle)) {
+        continue;
+      }
+      seenCategoriesThisDay.add(mealTitle);
+
       final scheduledAt = DateTime(
         dayZero.year,
         dayZero.month,
@@ -400,6 +430,7 @@ List<Json> expandCareSchedule({
       );
       expandedMealReminders.add({
         ...mt.template,
+        'title': mealTitle,
         'schedule_at': scheduledAt.toIso8601String(),
         'status': 'pending',
         'prescription_id': null,
@@ -409,9 +440,137 @@ List<Json> expandCareSchedule({
     }
   }
 
+  // Sinkronisasi jadwal makan dan jadwal minum obat per hari & per sesi:
+  // Aturan klinis mutlak:
+  // 1. Obat sebelum makan (isAfterEat == false) harus diminum 5 menit SEBELUM makan.
+  // 2. Obat sesudah makan (isAfterEat == true) harus diminum 30 menit SETELAH makan.
+  // 3. Obat sebelum makan dan obat sesudah makan di sesi yang sama harus berjarak 35 menit.
+  // 4. Jadwal makan di hari ke-1 (dan setiap hari) harus selaras dengan jam obat yang aktif di sesi tersebut.
+  for (var dayOffset = 0; dayOffset <= maxDayOffset; dayOffset++) {
+    final dayMedReminders = expandedMedReminders
+        .where((r) => r['day_number'] == dayOffset + 1)
+        .toList();
+
+    final sessions = [
+      (check: (int h) => h < 11, category: 'Waktu Sarapan'),
+      (check: (int h) => h >= 11 && h < 16, category: 'Waktu Makan Siang'),
+      (check: (int h) => h >= 16, category: 'Waktu Makan Malam'),
+    ];
+
+    for (final session in sessions) {
+      final sessionMeds = dayMedReminders.where((r) {
+        final dt = DateTime.parse(r['schedule_at'] as String);
+        return session.check(dt.hour);
+      }).toList();
+
+      if (sessionMeds.isEmpty) continue;
+
+      final beforeEatList = sessionMeds.where((r) => r['isAfterEat'] == false).toList();
+      final afterEatList = sessionMeds.where((r) => r['isAfterEat'] == true).toList();
+
+      final sessionMealIndex = expandedMealReminders.indexWhere(
+        (r) => r['day_number'] == dayOffset + 1 && r['title'] == session.category,
+      );
+
+      DateTime mealDt;
+      if (beforeEatList.isNotEmpty) {
+        final earliestBefore = beforeEatList
+            .map((r) => DateTime.parse(r['schedule_at'] as String))
+            .reduce((a, b) => a.isBefore(b) ? a : b);
+        mealDt = earliestBefore.add(const Duration(minutes: 5));
+
+        for (final b in beforeEatList) {
+          b['schedule_at'] = earliestBefore.toIso8601String();
+        }
+
+        if (afterEatList.isNotEmpty) {
+          final afterDt = mealDt.add(const Duration(minutes: 30));
+          for (final a in afterEatList) {
+            a['schedule_at'] = afterDt.toIso8601String();
+          }
+        }
+      } else {
+        final earliestAfter = afterEatList
+            .map((r) => DateTime.parse(r['schedule_at'] as String))
+            .reduce((a, b) => a.isBefore(b) ? a : b);
+        mealDt = earliestAfter.subtract(const Duration(minutes: 30));
+
+        for (final a in afterEatList) {
+          a['schedule_at'] = earliestAfter.toIso8601String();
+        }
+      }
+
+      if (sessionMealIndex != -1) {
+        expandedMealReminders[sessionMealIndex]['schedule_at'] = mealDt.toIso8601String();
+      } else {
+        // Hanya sinkronkan jadwal makan jika kategori ini ada di template AI
+        final templateForCategory = mealTemplates.where(
+          (m) => cleanMealTitle(m.template['title'] as String?, m.minutes) == session.category,
+        );
+        if (templateForCategory.isNotEmpty) {
+          expandedMealReminders.add({
+            ...templateForCategory.first.template,
+            'title': session.category,
+            'schedule_at': mealDt.toIso8601String(),
+            'status': 'pending',
+            'prescription_id': null,
+            'reminder_items': <Json>[],
+            'day_number': dayOffset + 1,
+          });
+        }
+      }
+    }
+  }
+
+  // Gabungkan pengingat obat yang jatuh pada waktu yang sama DAN status isAfterEat sama
+  // ke dalam 1 reminder card sesuai permintaan pengguna.
+  final mergedMedReminders = <String, Json>{};
+  for (final medRem in expandedMedReminders) {
+    final isAfterEat = medRem['isAfterEat'] == true;
+    final timeStr = medRem['schedule_at'] as String;
+    // Key penggabungan mencakup status isAfterEat sehingga obat beda isAfterEat tidak digabung!
+    final key = '${timeStr}_$isAfterEat';
+    if (!mergedMedReminders.containsKey(key)) {
+      mergedMedReminders[key] = Map<String, dynamic>.from(medRem);
+    } else {
+      final existing = mergedMedReminders[key]!;
+      final exTitle = (existing['title'] as String? ?? 'Minum Obat').trim();
+      final newTitle = (medRem['title'] as String? ?? 'Minum Obat').trim();
+
+      // Gabungkan reminder_items
+      final exItems = (existing['reminder_items'] as List? ?? []).whereType<Map>().toList();
+      final newItems = (medRem['reminder_items'] as List? ?? []).whereType<Map>().toList();
+      final existingMedIds = exItems
+          .map((e) => (e['medication_id'] as num?)?.toInt())
+          .whereType<int>()
+          .toSet();
+
+      for (final item in newItems) {
+        final id = (item['medication_id'] as num?)?.toInt();
+        if (id != null && !existingMedIds.contains(id)) {
+          exItems.add(item);
+          existingMedIds.add(id);
+        }
+      }
+      existing['reminder_items'] = exItems;
+
+      // Gabungkan judul bila menyebut obat berbeda
+      final cleanNewMedName = newTitle.replaceFirst(RegExp(r'^Minum\s+', caseSensitive: false), '').trim();
+      if (cleanNewMedName.isNotEmpty && !exTitle.contains(cleanNewMedName)) {
+        if (exTitle.startsWith('Minum Obat: ')) {
+          existing['title'] = '$exTitle, $cleanNewMedName';
+        } else if (exTitle.startsWith('Minum ')) {
+          existing['title'] = '$exTitle & $cleanNewMedName';
+        } else {
+          existing['title'] = 'Minum Obat: $exTitle, $cleanNewMedName';
+        }
+      }
+    }
+  }
+
   final allReminders = <Json>[
     ...expandedMealReminders,
-    ...expandedMedReminders,
+    ...mergedMedReminders.values,
   ];
   allReminders.sort((a, b) {
     final cmp = DateTime.parse(

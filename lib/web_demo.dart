@@ -221,7 +221,7 @@ class WebDemo {
         final prescriptions = (input['prescriptions'] as List? ?? const []);
         final reminders = <Json>[
           {
-            'title': 'Sarapan: Bubur Ayam Kaldu Lembut',
+            'title': 'Waktu Sarapan',
             'schedule_at': '07:00',
             'status': 'pending',
             'prescription_id': null,
@@ -245,14 +245,14 @@ class WebDemo {
                 ],
               },
           {
-            'title': 'Makan Siang: Nasi Tim Ikan & Bayam',
+            'title': 'Waktu Makan Siang',
             'schedule_at': '12:30',
             'status': 'pending',
             'prescription_id': null,
             'reminder_items': <Json>[],
           },
           {
-            'title': 'Makan Malam: Sup Tahu Sayur Bening',
+            'title': 'Waktu Makan Malam',
             'schedule_at': '18:30',
             'status': 'pending',
             'prescription_id': null,
