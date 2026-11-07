@@ -46,6 +46,9 @@ void main() {
       if (table == DatabaseTables.healthCondition) {
         expect(columnNames, contains('name'));
       }
+      if (table == DatabaseTables.medications) {
+        expect(columnNames, contains('dose_type'));
+      }
       expect(
         columnNames,
         contains('id'),
@@ -394,5 +397,32 @@ void main() {
       ]));
     },
   );
+
+  test('Tabel medications mendukung dose_type dan instruction opsional', () async {
+    final prescriptionId = await prescriptionRepo.insertPrescriptionWithMedications(
+      prescription: Prescription(
+        prescriptionDate: DateTime(2026, 11, 7),
+        status: PrescriptionStatus.active.value,
+      ),
+      medications: [
+        Medication(
+          prescriptionId: 0,
+          medicineName: 'Sanmol Sirup',
+          dosage: '1 sendok makan',
+          frequency: '3x sehari',
+          instruction: null, // Opsional: boleh null
+          quantity: 60, // 60 ml
+          isAfterEat: true,
+          doseType: 'SIRUP_SPOON',
+        ),
+      ],
+    );
+
+    final meds = await prescriptionRepo.getMedicationsByPrescription(prescriptionId);
+    expect(meds.length, 1);
+    expect(meds.first.doseType, 'SIRUP_SPOON');
+    expect(meds.first.instruction, isNull);
+    expect(meds.first.quantity, 60);
+  });
 }
 

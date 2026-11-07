@@ -409,7 +409,7 @@ void main() {
       await tapText(tester, '13:00');
 
       await enterFieldAt(tester, 'Nama obat', 'Amlodipine', index: 0);
-      await enterFieldAt(tester, 'Dosis', '5 mg', index: 0);
+      await enterFieldAt(tester, 'Takaran', '5 mg', index: 0);
       await enterFieldAt(tester, 'Jumlah', '2', index: 0);
       await enterFieldAt(tester, 'Frekuensi minum', '1x sehari', index: 0);
       await enterFieldAt(
@@ -422,7 +422,7 @@ void main() {
       // Add a second medication
       await tapText(tester, 'Tambah Obat Lainnya');
       await enterFieldAt(tester, 'Nama obat', 'Paracetamol', index: 1);
-      await enterFieldAt(tester, 'Dosis', '500 mg', index: 1);
+      await enterFieldAt(tester, 'Takaran', '500 mg', index: 1);
       await enterFieldAt(tester, 'Jumlah', '4', index: 1);
       await enterFieldAt(tester, 'Frekuensi minum', '3x sehari', index: 1);
       await enterFieldAt(

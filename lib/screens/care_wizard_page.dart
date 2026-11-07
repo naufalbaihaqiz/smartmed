@@ -4,6 +4,7 @@ import 'package:intl/intl.dart';
 import '../care_api.dart';
 import '../care_forms.dart';
 import '../models/care_plan.dart';
+import '../models/medication.dart';
 import '../palette.dart';
 import '../services/schedule_expander.dart';
 import '../widgets.dart';
@@ -31,6 +32,7 @@ class _MedicationDraft {
   final TextEditingController frequency;
   final TextEditingController instruction;
   final TextEditingController notes;
+  String doseType = 'TABLET';
   bool isAfterEat = true;
 
   void dispose() {
@@ -237,8 +239,11 @@ class _CareWizardPageState extends State<CareWizardPage> {
               'medicine_name': _medications[i].name.text.trim(),
               'dosage': _medications[i].dosage.text.trim(),
               'frequency': _medications[i].frequency.text.trim(),
-              'instruction': _medications[i].instruction.text.trim(),
+              'instruction': _medications[i].instruction.text.trim().isEmpty
+                  ? null
+                  : _medications[i].instruction.text.trim(),
               'quantity': int.parse(_medications[i].quantity.text.trim()),
+              'dose_type': _medications[i].doseType,
               'notes': _medications[i].notes.text.trim().isEmpty
                   ? null
                   : _medications[i].notes.text.trim(),
@@ -854,6 +859,31 @@ class _CareWizardPageState extends State<CareWizardPage> {
             ),
           ),
           const SizedBox(height: 12),
+          DropdownButtonFormField<String>(
+            initialValue: med.doseType,
+            decoration: const InputDecoration(
+              labelText: 'Bentuk & Satuan Sediaan (Dose Type)',
+              prefixIcon: Icon(Icons.category_outlined),
+            ),
+            isExpanded: true,
+            items: [
+              for (final opt in doseTypeOptions)
+                DropdownMenuItem<String>(
+                  value: opt.code,
+                  child: Text(
+                    opt.name,
+                    style: const TextStyle(fontSize: 13),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+            ],
+            onChanged: (val) {
+              if (val != null) {
+                setState(() => med.doseType = val);
+              }
+            },
+          ),
+          const SizedBox(height: 12),
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -861,10 +891,11 @@ class _CareWizardPageState extends State<CareWizardPage> {
                 flex: 3,
                 child: TextFormField(
                   controller: med.dosage,
-                  validator: (v) => validateRequired(v, 'Dosis wajib diisi.'),
-                  decoration: const InputDecoration(
-                    labelText: 'Dosis',
-                    hintText: 'Contoh: 5 mg / 1 tab',
+                  validator: (v) => validateRequired(v, 'Takaran wajib diisi.'),
+                  decoration: InputDecoration(
+                    labelText: 'Takaran',
+                    hintText: getDoseTypeOption(med.doseType).doseHint,
+                    helperText: 'Satuan: ${getDoseTypeOption(med.doseType).doseUnit}',
                   ),
                 ),
               ),
@@ -875,9 +906,11 @@ class _CareWizardPageState extends State<CareWizardPage> {
                   controller: med.quantity,
                   keyboardType: TextInputType.number,
                   validator: validatePositiveInt,
-                  decoration: const InputDecoration(
+                  decoration: InputDecoration(
                     labelText: 'Jumlah',
-                    hintText: '10',
+                    hintText: getDoseTypeOption(med.doseType).quantityHint,
+                    suffixText: getDoseTypeOption(med.doseType).quantityUnit,
+                    helperText: 'Satuan: ${getDoseTypeOption(med.doseType).quantityUnit}',
                   ),
                 ),
               ),
@@ -911,10 +944,10 @@ class _CareWizardPageState extends State<CareWizardPage> {
           const SizedBox(height: 12),
           TextFormField(
             controller: med.instruction,
-            validator: (v) => validateRequired(v, 'Instruksi wajib diisi.'),
             decoration: const InputDecoration(
               labelText: 'Instruksi waktu minum',
-              hintText: 'Contoh: Pagi pukul 08:00 & Malam pukul 20:00',
+              hintText: 'Contoh: Pagi pukul 08:00 & Malam pukul 20:00 (Opsional)',
+              helperText: 'Opsional (boleh dikosongkan)',
             ),
           ),
           const SizedBox(height: 12),

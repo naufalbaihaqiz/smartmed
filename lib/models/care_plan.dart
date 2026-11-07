@@ -559,6 +559,7 @@ class SqliteCarePlanStore extends CarePlanStore {
               'quantity': (m['quantity'] as num?)?.toInt(),
               'notes': m['notes'] as String?,
               'isAfterEat': m['isAfterEat'] == true ? 1 : 0,
+              'dose_type': (m['dose_type'] as String?) ?? 'TABLET',
               'created_at': nowIso,
             });
           }
@@ -572,6 +573,7 @@ class SqliteCarePlanStore extends CarePlanStore {
             'quantity': (m['quantity'] as num?)?.toInt(),
             'notes': m['notes'] as String?,
             'isAfterEat': m['isAfterEat'] == true ? 1 : 0,
+            'dose_type': (m['dose_type'] as String?) ?? 'TABLET',
             'created_at': nowIso,
           });
         }

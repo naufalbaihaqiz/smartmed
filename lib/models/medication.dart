@@ -1,4 +1,114 @@
 /// Model untuk tabel `medications`.
+class DoseTypeOption {
+  const DoseTypeOption({
+    required this.code,
+    required this.name,
+    required this.doseUnit,
+    required this.quantityUnit,
+    required this.doseHint,
+    required this.quantityHint,
+  });
+
+  final String code;
+  final String name;
+  final String doseUnit;
+  final String quantityUnit;
+  final String doseHint;
+  final String quantityHint;
+}
+
+const List<DoseTypeOption> doseTypeOptions = [
+  DoseTypeOption(
+    code: 'TABLET',
+    name: 'TABLET ("tablet")',
+    doseUnit: 'tablet',
+    quantityUnit: 'tablet',
+    doseHint: 'Contoh: 1 tablet',
+    quantityHint: '10',
+  ),
+  DoseTypeOption(
+    code: 'KAPSUL',
+    name: 'KAPSUL ("kapsul")',
+    doseUnit: 'kapsul',
+    quantityUnit: 'kapsul',
+    doseHint: 'Contoh: 1 kapsul',
+    quantityHint: '10',
+  ),
+  DoseTypeOption(
+    code: 'SIRUP_SPOON',
+    name: 'SIRUP_SPOON ("sendok makan" / 15 ml)',
+    doseUnit: 'sdm (15 ml)',
+    quantityUnit: 'ml',
+    doseHint: 'Contoh: 1 sendok makan (15 ml)',
+    quantityHint: '60',
+  ),
+  DoseTypeOption(
+    code: 'TEASPOON',
+    name: 'TEASPOON ("sendok teh" / 5 ml)',
+    doseUnit: 'sdt (5 ml)',
+    quantityUnit: 'ml',
+    doseHint: 'Contoh: 1 sendok teh (5 ml)',
+    quantityHint: '60',
+  ),
+  DoseTypeOption(
+    code: 'TETES',
+    name: 'TETES ("tetes" / drop)',
+    doseUnit: 'tetes',
+    quantityUnit: 'tetes',
+    doseHint: 'Contoh: 3 tetes',
+    quantityHint: '30',
+  ),
+  DoseTypeOption(
+    code: 'BUNGKUS',
+    name: 'BUNGKUS ("bungkus" / puyer)',
+    doseUnit: 'bungkus',
+    quantityUnit: 'bungkus',
+    doseHint: 'Contoh: 1 bungkus',
+    quantityHint: '10',
+  ),
+  DoseTypeOption(
+    code: 'OLES',
+    name: 'OLES ("oles" / salep / krim)',
+    doseUnit: 'oles',
+    quantityUnit: 'tube / gram',
+    doseHint: 'Contoh: 1 olesan tipis',
+    quantityHint: '1',
+  ),
+  DoseTypeOption(
+    code: 'INJEKSI',
+    name: 'INJEKSI ("injeksi" / ampul / vial)',
+    doseUnit: 'injeksi / ml',
+    quantityUnit: 'ampul / vial',
+    doseHint: 'Contoh: 1 ampul',
+    quantityHint: '5',
+  ),
+  DoseTypeOption(
+    code: 'SEMPROT',
+    name: 'SEMPROT ("semprot" / inhaler / spray)',
+    doseUnit: 'semprot / puff',
+    quantityUnit: 'semprot / takaran',
+    doseHint: 'Contoh: 2 semprot (puff)',
+    quantityHint: '60',
+  ),
+  DoseTypeOption(
+    code: 'PIECE',
+    name: 'PIECE ("biji" / pcs / buah)',
+    doseUnit: 'biji / pcs',
+    quantityUnit: 'biji / pcs',
+    doseHint: 'Contoh: 1 biji',
+    quantityHint: '10',
+  ),
+];
+
+DoseTypeOption getDoseTypeOption(String? code) {
+  if (code == null) return doseTypeOptions.first;
+  final upper = code.trim().toUpperCase();
+  for (final opt in doseTypeOptions) {
+    if (opt.code == upper) return opt;
+  }
+  return doseTypeOptions.first;
+}
+
 class Medication {
   Medication({
     this.id,
@@ -10,6 +120,7 @@ class Medication {
     this.quantity,
     this.notes,
     this.isAfterEat = false,
+    this.doseType = 'TABLET',
     DateTime? createdAt,
   }) : createdAt = createdAt ?? DateTime.now();
 
@@ -22,6 +133,7 @@ class Medication {
   final int? quantity;
   final String? notes;
   final bool isAfterEat;
+  final String? doseType;
   final DateTime createdAt;
 
   Medication copyWith({
@@ -34,6 +146,7 @@ class Medication {
     int? quantity,
     String? notes,
     bool? isAfterEat,
+    String? doseType,
     DateTime? createdAt,
   }) {
     return Medication(
@@ -46,6 +159,7 @@ class Medication {
       quantity: quantity ?? this.quantity,
       notes: notes ?? this.notes,
       isAfterEat: isAfterEat ?? this.isAfterEat,
+      doseType: doseType ?? this.doseType,
       createdAt: createdAt ?? this.createdAt,
     );
   }
@@ -61,6 +175,7 @@ class Medication {
       'quantity': quantity,
       'notes': notes,
       'isAfterEat': isAfterEat ? 1 : 0,
+      'dose_type': doseType,
       'created_at': createdAt.toIso8601String(),
     };
   }
@@ -77,6 +192,7 @@ class Medication {
       quantity: (map['quantity'] as num?)?.toInt(),
       notes: map['notes'] as String?,
       isAfterEat: _parseBool(rawAfterEat),
+      doseType: (map['dose_type'] as String?) ?? 'TABLET',
       createdAt: _parseDateTime(map['created_at']),
     );
   }

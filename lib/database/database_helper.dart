@@ -118,6 +118,12 @@ class DatabaseHelper {
         'CREATE INDEX IF NOT EXISTS idx_reminders_schedule_at ON ${DatabaseTables.reminders} (schedule_at)',
       );
     }
+    if (oldVersion < 6) {
+      await db.execute(
+        'ALTER TABLE ${DatabaseTables.medications} '
+        'ADD COLUMN dose_type TEXT',
+      );
+    }
   }
 
   /// Menutup koneksi database yang sedang aktif.

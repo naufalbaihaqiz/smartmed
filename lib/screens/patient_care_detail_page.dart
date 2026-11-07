@@ -4,6 +4,7 @@ import 'package:intl/intl.dart';
 import '../care_api.dart';
 import '../care_forms.dart';
 import '../models/care_plan.dart';
+import '../models/medication.dart';
 import '../palette.dart';
 import '../widgets.dart';
 
@@ -688,7 +689,7 @@ class _PatientCareDetailPageState extends State<PatientCareDetailPage> {
                           ),
                         if (doseNumber != null && totalDoses != null)
                           BadgePill(
-                            'Dosis $doseNumber/$totalDoses',
+                            'Takaran $doseNumber/$totalDoses',
                             color: slate,
                             textColor: muted,
                           ),
@@ -940,18 +941,26 @@ class _PatientCareDetailPageState extends State<PatientCareDetailPage> {
                             ],
                           ),
                           const SizedBox(height: 6),
-                          Text(
-                            'Dosis: ${med['dosage']} · Frekuensi: ${med['frequency']} · Jumlah: ${med['quantity']}',
-                            style: const TextStyle(fontSize: 12.5, color: ink),
+                          Builder(
+                            builder: (context) {
+                              final doseOpt = getDoseTypeOption(med['dose_type'] as String?);
+                              return Text(
+                                'Bentuk: ${doseOpt.name} · Takaran: ${med['dosage']} · Frekuensi: ${med['frequency']} · Jumlah: ${med['quantity']} ${doseOpt.quantityUnit}',
+                                style: const TextStyle(fontSize: 12.5, color: ink),
+                              );
+                            },
                           ),
-                          const SizedBox(height: 3),
-                          Text(
-                            'Instruksi: ${med['instruction']}',
-                            style: const TextStyle(
-                              fontSize: 12.5,
-                              color: muted,
+                          if (med['instruction'] is String &&
+                              (med['instruction'] as String).trim().isNotEmpty) ...[
+                            const SizedBox(height: 3),
+                            Text(
+                              'Instruksi: ${med['instruction']}',
+                              style: const TextStyle(
+                                fontSize: 12.5,
+                                color: muted,
+                              ),
                             ),
-                          ),
+                          ],
                           if (med['notes'] is String &&
                               (med['notes'] as String).isNotEmpty) ...[
                             const SizedBox(height: 3),

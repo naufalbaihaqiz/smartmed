@@ -331,5 +331,47 @@ void main() {
       final captoTimes = captoDay1.map((r) => DateTime.parse(r['schedule_at'] as String)).toList();
       expect(captoTimes[1].difference(captoTimes[0]).inHours >= 11, isTrue);
     });
+
+    test('calculateMedicationTotalDoses mendukung berbagai dose_type dan satuan sediaan', () {
+      // 1. SIRUP_SPOON: 60 ml dengan 1 sendok makan (15 ml) -> 4 dosis
+      final sirupSpoon = calculateMedicationTotalDoses({
+        'dose_type': 'SIRUP_SPOON',
+        'dosage': '1 sendok makan',
+        'quantity': 60,
+      });
+      expect(sirupSpoon, 4);
+
+      // 2. SIRUP_SPOON: 60 ml dengan 15 ml -> 4 dosis
+      final sirupMl = calculateMedicationTotalDoses({
+        'dose_type': 'SIRUP_SPOON',
+        'dosage': '15 ml',
+        'quantity': 60,
+      });
+      expect(sirupMl, 4);
+
+      // 3. TEASPOON: 60 ml dengan 1 sendok teh (5 ml) -> 12 dosis
+      final teaspoon = calculateMedicationTotalDoses({
+        'dose_type': 'TEASPOON',
+        'dosage': '1 sendok teh',
+        'quantity': 60,
+      });
+      expect(teaspoon, 12);
+
+      // 4. TABLET: 10 tablet dengan dosis 1 tablet -> 10 dosis
+      final tablet = calculateMedicationTotalDoses({
+        'dose_type': 'TABLET',
+        'dosage': '1 tablet',
+        'quantity': 10,
+      });
+      expect(tablet, 10);
+
+      // 5. KAPSUL: 10 kapsul dengan dosis 2 kapsul -> 5 dosis
+      final kapsul = calculateMedicationTotalDoses({
+        'dose_type': 'KAPSUL',
+        'dosage': '2 kapsul',
+        'quantity': 10,
+      });
+      expect(kapsul, 5);
+    });
   });
 }
