@@ -4,189 +4,274 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 
 import 'care_api.dart';
+import 'care_forms.dart';
+import 'models/care_plan.dart';
 
-/// Fixtures for the explicitly enabled web preview.
+/// Fixtures dan simulasi server untuk pratinjau web (`TEMANRAWAT_WEB_DEMO=true`).
 class WebDemo {
-  WebDemo({required this.withPrescription});
+  WebDemo({this.withPrescription = true});
 
   final bool withPrescription;
-  String get caregiver => withPrescription ? 'Dimas' : 'Rina';
-  String get patient => withPrescription ? 'Pak Arif' : 'Ibu Sari';
 
-  Json get mealInput => {
-    'health_condition': <String, dynamic>{
-      'condition_name': 'Pemulihan setelah konsultasi',
-      'name': patient,
-      'notes': 'Skenario fiktif untuk pratinjau.',
-      'age': withPrescription ? 65 : 68,
-      'weight': 54.0,
-      'height': 154.0,
-      'isTherePrescription': withPrescription,
-    },
-    'allergies': <Json>[
-      {'type': 'Kacang'},
-    ],
-    'budget': 45000.0,
-    'preferensi': ['Makanan rumahan', 'Tekstur lembut'],
-  };
-
-  List<Json> get prescriptions => [
-    if (withPrescription)
-      {
-        'id': 1,
-        'prescription_date': DateTime.now().toIso8601String().split('T').first,
-        'start_at': DateTime.now().toIso8601String().split('T').first,
-        'status': 'active',
-        'notes': 'Resep fiktif untuk pratinjau.',
-        'medications': <Json>[
-          {
-            'id': 1,
-            'prescription_id': 1,
-            'medicine_name': 'Obat contoh A',
-            'dosage': 'Sesuai catatan contoh',
-            'frequency': 'Sekali sehari',
-            'instruction': 'Pengingat fiktif setelah sarapan.',
-            'quantity': 7,
-            'isAfterEat': true,
-          },
-        ],
-      },
-  ];
-
-  List<Json> get meals => [
+  static List<Json> get sampleMeals => [
     {
-      'recipe_name': 'Bubur ayam rumahan',
-      'description': 'Menu sarapan dalam skenario perawatan.',
+      'recipe_name': 'Bubur Ayam Kaldu Lembut',
+      'description': 'Menu sarapan hangat tinggi protein dan mudah dicerna.',
       'servings': 1,
       'cooking_time': 25,
-      'instructions': 'Masak beras dan kaldu hingga lembut. Tambahkan ayam matang saat disajikan.',
-      'source': 'Masak di rumah',
+      'instructions':
+          '1. Masak beras bersama kaldu ayam rendah garam hingga lembut.\n'
+          '2. Masukkan suwiran dada ayam dan wortel cincang.\n'
+          '3. Sajikan hangat dengan taburan seledri segar.',
+      'source': 'AI TemanRawat',
       'ingredients': [
-        {'ingredient_name': 'Beras', 'quantity': '50 g'},
-        {'ingredient_name': 'Ayam', 'quantity': '60 g'},
+        {'ingredient_name': 'Beras putih', 'quantity': '50 g'},
+        {'ingredient_name': 'Dada ayam tanpa kulit', 'quantity': '60 g'},
+        {'ingredient_name': 'Wortel parut', 'quantity': '30 g'},
       ],
       'nutrition': {
         'calories': 265,
-        'protein': 16,
+        'protein': 18,
         'carbohydrates': 38,
-        'fat': 5,
+        'fat': 4.5,
       },
     },
     {
-      'recipe_name': 'Nasi tim ayam sayur',
-      'description': 'Menu makan siang dalam skenario perawatan.',
-      'servings': 1,
-      'cooking_time': 35,
-      'instructions': 'Kukus nasi dengan ayam dan sayur sampai matang.',
-      'source': 'Masak di rumah',
-      'ingredients': [
-        {'ingredient_name': 'Nasi', 'quantity': '150 g'},
-        {'ingredient_name': 'Wortel', 'quantity': '40 g'},
-      ],
-    },
-    {
-      'recipe_name': 'Sup tahu sayur',
-      'description': 'Menu makan malam dalam skenario perawatan.',
+      'recipe_name': 'Nasi Tim Ikan & Bayam',
+      'description': 'Menu makan siang kaya zat besi dengan tekstur lembut.',
       'servings': 1,
       'cooking_time': 30,
       'instructions':
-          'Masak sayur dan tahu hingga matang, lalu sajikan hangat.',
-      'source': 'Masak di rumah',
+          '1. Kukus nasi lembek bersama fillet ikan kukus.\n'
+          '2. Tambahkan daun bayam muda di 5 menit terakhir.\n'
+          '3. Hidangkan selagi hangat.',
+      'source': 'AI TemanRawat',
       'ingredients': [
-        {'ingredient_name': 'Tahu', 'quantity': '80 g'},
-        {'ingredient_name': 'Sayur', 'quantity': '100 g'},
+        {'ingredient_name': 'Nasi putih lembut', 'quantity': '120 g'},
+        {'ingredient_name': 'Fillet ikan nila', 'quantity': '75 g'},
+        {'ingredient_name': 'Daun bayam segar', 'quantity': '50 g'},
       ],
+      'nutrition': {
+        'calories': 310,
+        'protein': 22,
+        'carbohydrates': 42,
+        'fat': 5.0,
+      },
+    },
+    {
+      'recipe_name': 'Sup Tahu Sayur Bening',
+      'description': 'Menu makan malam ringan yang nyaman di lambung.',
+      'servings': 1,
+      'cooking_time': 20,
+      'instructions':
+          '1. Didihkan air bersama bawang putih geprek.\n'
+          '2. Masukkan wortel dan labu siam hingga empuk.\n'
+          '3. Masukkan tahu putih potong dadu, masak sebentar lalu angkat.',
+      'source': 'AI TemanRawat',
+      'ingredients': [
+        {'ingredient_name': 'Tahu putih sutra', 'quantity': '80 g'},
+        {'ingredient_name': 'Labu siam & wortel', 'quantity': '100 g'},
+      ],
+      'nutrition': {
+        'calories': 185,
+        'protein': 11,
+        'carbohydrates': 18,
+        'fat': 6.0,
+      },
     },
   ];
 
-  List<Json> reminders({bool completedBreakfast = false, Json? medication}) {
-    final today = DateTime.now();
-    String time(int hour, int minute) => DateTime(
-      today.year,
-      today.month,
-      today.day,
-      hour,
-      minute,
-    ).toIso8601String();
-    return [
-      {
-        'title': 'Sarapan',
-        'schedule_at': time(7, 30),
-        'status': completedBreakfast ? 'completed' : 'pending',
-        'reminder_items': <Json>[],
-      },
-      if (medication != null)
-        {
-          'title': 'Cek jadwal obat',
-          'schedule_at': time(8, 0),
-          'status': 'pending',
-          'prescription_id': medication['prescription_id'],
-          'reminder_items': <Json>[
-            {'medication_id': medication['id']},
-          ],
-        },
-      {
-        'title': 'Makan siang',
-        'schedule_at': time(12, 30),
-        'status': 'pending',
-        'reminder_items': <Json>[],
-      },
-      {
-        'title': 'Waktu istirahat',
-        'schedule_at': time(13, 15),
-        'status': 'pending',
-        'reminder_items': <Json>[],
-      },
-      {
-        'title': 'Makan malam',
-        'schedule_at': time(18, 30),
-        'status': 'pending',
-        'reminder_items': <Json>[],
-      },
-    ];
+  static String _todayTime(int hour, int minute) {
+    final now = DateTime.now();
+    return DateTime(now.year, now.month, now.day, hour, minute).toIso8601String();
   }
 
-  List<Json> get agenda => reminders(
-    completedBreakfast: true,
-    medication: withPrescription
-        ? (prescriptions.single['medications'] as List<Json>).single
-        : null,
-  );
+  static List<PatientCarePlan> sampleCarePlans() {
+    final today = formatIsoDate(DateTime.now());
+    return [
+      PatientCarePlan(
+        id: 'demo-pak-arif',
+        patientName: 'Pak Arif',
+        healthCondition: {
+          'condition_name': 'Hipertensi',
+          'name': 'Pak Arif',
+          'diagnosis': 'Hipertensi tingkat 1',
+          'notes': 'Kurangi konsumsi garam berlebih',
+          'age': 65,
+          'weight': 62.0,
+          'height': 165.0,
+          'isTherePrescription': true,
+        },
+        prescriptions: [
+          {
+            'id': 1,
+            'prescription_date': today,
+            'start_at': today,
+            'status': 'active',
+            'notes': 'Kontrol tekanan darah rutin',
+            'medications': [
+              {
+                'id': 1,
+                'prescription_id': 1,
+                'medicine_name': 'Amlodipine',
+                'dosage': '5 mg',
+                'frequency': '1x sehari',
+                'instruction': 'Pagi hari setelah sarapan',
+                'quantity': 30,
+                'notes': null,
+                'isAfterEat': true,
+              },
+            ],
+          },
+        ],
+        allergies: const [
+          {'type': 'Kacang'},
+        ],
+        preferensi: const ['Rendah garam', 'Tekstur lembut'],
+        budget: 60000,
+        meals: sampleMeals,
+        reminders: [
+          {
+            'title': 'Sarapan: Bubur Ayam Kaldu Lembut',
+            'schedule_at': _todayTime(7, 0),
+            'status': 'completed',
+            'prescription_id': null,
+            'reminder_items': <Json>[],
+          },
+          {
+            'title': 'Minum Amlodipine',
+            'schedule_at': _todayTime(7, 30),
+            'status': 'pending',
+            'prescription_id': 1,
+            'reminder_items': const [
+              {'medication_id': 1},
+            ],
+          },
+          {
+            'title': 'Makan Siang: Nasi Tim Ikan & Bayam',
+            'schedule_at': _todayTime(12, 30),
+            'status': 'pending',
+            'prescription_id': null,
+            'reminder_items': <Json>[],
+          },
+          {
+            'title': 'Makan Malam: Sup Tahu Sayur Bening',
+            'schedule_at': _todayTime(18, 30),
+            'status': 'pending',
+            'prescription_id': null,
+            'reminder_items': <Json>[],
+          },
+        ],
+      ),
+      PatientCarePlan(
+        id: 'demo-ibu-sari',
+        patientName: 'Ibu Sari',
+        healthCondition: {
+          'condition_name': 'Pemulihan Pasca Rawat',
+          'name': 'Ibu Sari',
+          'diagnosis': null,
+          'notes': 'Perlu makanan hangat',
+          'age': 68,
+          'weight': 54.0,
+          'height': 154.0,
+          'isTherePrescription': false,
+        },
+        prescriptions: const [],
+        allergies: const [],
+        preferensi: const ['Berkuah hangat', 'Makanan rumahan'],
+        budget: 50000,
+        meals: sampleMeals.take(2).toList(),
+        reminders: [
+          {
+            'title': 'Sarapan: Bubur Ayam Kaldu Lembut',
+            'schedule_at': _todayTime(7, 30),
+            'status': 'completed',
+            'prescription_id': null,
+            'reminder_items': <Json>[],
+          },
+          {
+            'title': 'Makan Siang: Nasi Tim Ikan & Bayam',
+            'schedule_at': _todayTime(12, 30),
+            'status': 'completed',
+            'prescription_id': null,
+            'reminder_items': <Json>[],
+          },
+        ],
+      ),
+    ];
+  }
 
   CareApi createApi() => CareApi(
     baseUrl: 'https://temanrawat-preview.invalid',
     client: MockClient((request) async {
       final input = jsonDecode(request.body) as Json;
-      final response = switch (request.url.path) {
-        '/api/meal-plans/generate' => {
-          'status': 'draft',
-          'meals': meals,
-          'questions': [],
-          'review_notes': ['Ini adalah draf simulasi untuk preview web.'],
-        },
-        '/api/schedules/generate' => {
-          'status': 'draft',
-          'input_version': input['input_version'],
-          'reminders': reminders(medication: _firstMedication(input)),
-          'questions': [],
-          'conflicts': [],
-        },
-        _ => null,
-      };
-      return http.Response(
-        jsonEncode(response),
-        response == null ? 404 : 200,
-        headers: {'content-type': 'application/json; charset=utf-8'},
-      );
+      if (request.url.path == '/api/meal-plans/generate') {
+        return http.Response(
+          jsonEncode({
+            'status': 'draft',
+            'meals': sampleMeals,
+            'questions': <String>[],
+            'review_notes': ['Menu disimulasikan pada mode pratinjau demo.'],
+          }),
+          200,
+          headers: {'content-type': 'application/json; charset=utf-8'},
+        );
+      }
+      if (request.url.path == '/api/schedules/generate') {
+        final prescriptions = (input['prescriptions'] as List? ?? const []);
+        final reminders = <Json>[
+          {
+            'title': 'Sarapan: Bubur Ayam Kaldu Lembut',
+            'schedule_at': '07:00',
+            'status': 'pending',
+            'prescription_id': null,
+            'reminder_items': <Json>[],
+          },
+          for (final p in prescriptions.whereType<Map>())
+            for (var idx = 0;
+                idx < ((p['medications'] as List?)?.length ?? 0);
+                idx++)
+              {
+                'title':
+                    'Minum ${((p['medications'] as List)[idx] as Map)['medicine_name']}',
+                'schedule_at': '0${7 + (idx % 2)}:30',
+                'status': 'pending',
+                'prescription_id': p['id'],
+                'reminder_items': [
+                  {
+                    'medication_id':
+                        ((p['medications'] as List)[idx] as Map)['id'],
+                  },
+                ],
+              },
+          {
+            'title': 'Makan Siang: Nasi Tim Ikan & Bayam',
+            'schedule_at': '12:30',
+            'status': 'pending',
+            'prescription_id': null,
+            'reminder_items': <Json>[],
+          },
+          {
+            'title': 'Makan Malam: Sup Tahu Sayur Bening',
+            'schedule_at': '18:30',
+            'status': 'pending',
+            'prescription_id': null,
+            'reminder_items': <Json>[],
+          },
+        ];
+        return http.Response(
+          jsonEncode({
+            'status': 'draft',
+            'input_version': input['input_version'],
+            'reminders': reminders,
+            'questions': <String>[],
+            'conflicts': <String>[],
+          }),
+          200,
+          headers: {'content-type': 'application/json; charset=utf-8'},
+        );
+      }
+      return http.Response('Not Found', 404);
     }),
   );
-
-  Json? _firstMedication(Json input) {
-    final prescriptions = input['prescriptions'] as List;
-    for (final prescription in prescriptions) {
-      final medications = prescription['medications'] as List;
-      if (medications.isNotEmpty) return medications.first as Json;
-    }
-    return null;
-  }
 }

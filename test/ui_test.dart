@@ -6,11 +6,10 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:smartmed_nutricare/care_api.dart';
 import 'package:smartmed_nutricare/main.dart';
-import 'package:smartmed_nutricare/web_demo.dart';
-import 'package:smartmed_nutricare/welcome.dart';
+import 'package:smartmed_nutricare/widgets.dart';
 
 Future<void> tapText(WidgetTester tester, String text) async {
-  await tapWidget(tester, find.text(text));
+  await tapWidget(tester, find.text(text).first);
 }
 
 Future<void> tapWidget(WidgetTester tester, Finder target) async {
@@ -20,277 +19,342 @@ Future<void> tapWidget(WidgetTester tester, Finder target) async {
   await tester.pumpAndSettle();
 }
 
-Future<void> enterField(WidgetTester tester, String label, String value) async {
-  final field = find.widgetWithText(TextFormField, label);
+Future<void> enterFieldAt(
+  WidgetTester tester,
+  String label,
+  String value, {
+  int index = 0,
+}) async {
+  final field = find.widgetWithText(TextFormField, label).at(index);
   await tester.ensureVisible(field);
+  await tester.pumpAndSettle();
   await tester.enterText(field, value);
   await tester.pumpAndSettle();
 }
 
-Future<void> chooseDate(WidgetTester tester, String label, String value) async {
-  final field = find.widgetWithText(TextFormField, label);
-  await tester.ensureVisible(field);
-  await tester.tap(field);
-  await tester.pumpAndSettle();
-  final date = DateTime.parse(value);
-  final day = find.descendant(
-    of: find.byType(CalendarDatePicker),
-    matching: find.text('${date.day}'),
-  );
-  await tester.tap(day);
-  await tester.pumpAndSettle();
-  await tapText(tester, 'Pilih tanggal');
-}
-
-Future<void> completeAndSaveAgenda(WidgetTester tester) async {
-  var pending = find.text('Catat sebagai selesai');
-  while (pending.evaluate().isNotEmpty) {
-    await tapWidget(tester, pending.first);
-    pending = find.text('Catat sebagai selesai');
-  }
-  await tapText(tester, 'Selesai dan simpan semua ke riwayat');
-}
-
 void usePhone(WidgetTester tester) {
-  tester.view.physicalSize = const Size(360, 800);
+  tester.view.physicalSize = const Size(390, 844);
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.resetPhysicalSize);
   addTearDown(tester.view.resetDevicePixelRatio);
 }
 
-Future<void> startCare(WidgetTester tester, {CareApi? api}) async {
-  await tester.pumpWidget(TemanRawatApp(api: api));
-  expect(
-    find.text('Coba Demo'),
-    webDemoEnabled ? findsOneWidget : findsNothing,
-  );
-  await tapText(tester, 'Mulai Mendampingi');
-  await enterField(tester, 'Nama panggilan kamu', 'Pendamping Uji');
-  await enterField(tester, 'Nama panggilan orang yang dirawat', 'Pasien Uji');
-  await tapText(tester, 'Lanjut ke Profil');
-}
-
 void main() {
   testWidgets(
-    'web demo opens populated screens and simulates schedule generation',
+    'opens directly on Home without bottom navigation bar and shows + FAB',
     (tester) async {
       usePhone(tester);
-      WebDemo? scenario;
-      await tester.pumpWidget(
-        MaterialApp(
-          home: StatefulBuilder(
-            builder: (context, setState) {
-              final demo = scenario;
-              return demo == null
-                  ? WelcomePage(
-                      onStart: (_, _) {},
-                      onDemo: (withPrescription) => setState(
-                        () => scenario = WebDemo(
-                          withPrescription: withPrescription,
-                        ),
-                      ),
-                    )
-                  : HomeShell(
-                      caregiver: demo.caregiver,
-                      patient: demo.patient,
-                      demo: demo,
-                      onExitDemo: () => setState(() => scenario = null),
-                    );
-            },
-          ),
-        ),
-      );
-      await tapText(tester, 'Coba Demo');
-      await tapText(tester, 'Dimas & Pak Arif');
-      expect(find.text('Demo web'), findsOneWidget);
-      expect(find.text('Bubur ayam rumahan'), findsOneWidget);
-      await tapWidget(tester, find.text('Lihat detail').first);
-      expect(find.text('• Beras · 50 g'), findsOneWidget);
-      await tapWidget(tester, find.byTooltip('Tutup'));
-      await tapText(tester, 'Buat draf menu');
-      expect(
-        find.text('Ini adalah draf simulasi untuk preview web.'),
-        findsOneWidget,
-      );
-      await tapText(tester, 'Hari Ini');
-      expect(find.text('PROGRES PERAWATAN'), findsOneWidget);
-      await tapText(tester, 'Riwayat');
-      expect(find.text('Sarapan'), findsOneWidget);
-      await tapText(tester, 'Profil');
-      expect(find.text('Obat contoh A'), findsOneWidget);
-      await tapText(tester, 'Menu');
-      await tapText(tester, 'Isi rutinitas pendampingan');
-      await enterField(tester, 'Rutinitas harian', 'Makan bersama keluarga');
-      await tapText(tester, 'Simpan rutinitas');
-      await tapText(tester, 'Setujui menu dan buat jadwal');
-      expect(find.text('Tinjau jadwal'), findsOneWidget);
-      await tapText(tester, 'Setujui dan masukkan ke agenda');
-      expect(find.text('Agenda Perawatan'), findsOneWidget);
-      await completeAndSaveAgenda(tester);
-      await tapText(tester, 'Riwayat');
-      expect(find.text('Cek jadwal obat'), findsOneWidget);
-      await tapText(tester, 'Profil');
-      await tapText(tester, 'Ganti skenario demo');
-      await tapText(tester, 'Coba Demo');
-      await tapText(tester, 'Rina & Ibu Sari');
-      await tapText(tester, 'Profil');
-      expect(find.text('Belum ada resep yang dicatat.'), findsOneWidget);
-      expect(find.text('Ibu Sari'), findsOneWidget);
+      await tester.pumpWidget(const TemanRawatApp());
+      await tester.pumpAndSettle();
+
+      expect(find.text('Daftar Orang yang Dirawat'), findsOneWidget);
+      expect(find.text('Belum Ada yang Dirawat'), findsOneWidget);
+      expect(find.byType(NavigationBar), findsNothing);
+      expect(find.byType(BottomNavigationBar), findsNothing);
+      expect(find.byType(FloatingActionButton), findsOneWidget);
       expect(tester.takeException(), isNull);
     },
   );
 
-  testWidgets('new session starts without recipes, reminders or history', (
-    tester,
-  ) async {
-    usePhone(tester);
-    await startCare(tester);
-    expect(find.text('Kondisi kesehatan belum diisi.'), findsOneWidget);
-    expect(find.text('Belum ada resep yang dicatat.'), findsOneWidget);
-
-    await tapText(tester, 'Menu');
-    expect(find.textContaining('Belum ada menu.'), findsOneWidget);
-    await tapText(tester, 'Hari Ini');
-    expect(find.text('Belum ada jadwal yang disetujui.'), findsOneWidget);
-    await tapText(tester, 'Riwayat');
-    expect(find.text('Belum ada kegiatan yang dicatat.'), findsOneWidget);
-    expect(tester.takeException(), isNull);
-  });
-
   testWidgets(
-    'sends entered profile and returned recipe through the API workflow',
+    'completes full care flow with prescription + multiple medications and updates Home status',
     (tester) async {
       usePhone(tester);
-      final recipe = <String, dynamic>{
-        'recipe_name': 'Resep dari server uji',
-        'servings': 2,
-        'cooking_time': 15,
-        'instructions': 'Instruksi dari server uji',
+      final generatedMeal = <String, dynamic>{
+        'recipe_name': 'Sup Ayam Rendah Garam',
+        'description': 'Menu sehat tinggi protein rendah natrium',
+        'servings': 1,
+        'cooking_time': 25,
+        'instructions': '1. Rebus ayam.\n2. Masukkan sayuran segar.',
+        'source': 'AI TemanRawat',
         'ingredients': [
-          {'ingredient_name': 'Bahan uji', 'quantity': '100 g'},
+          {'ingredient_name': 'Dada ayam', 'quantity': '100 g'},
+          {'ingredient_name': 'Wortel', 'quantity': '50 g'},
         ],
+        'nutrition': {
+          'calories': 240.0,
+          'protein': 24.0,
+          'carbohydrates': 14.0,
+          'fat': 6.0,
+        },
       };
-      var requests = 0;
+
+      var mealRequests = 0;
+      var scheduleRequests = 0;
+
       final api = CareApi(
-        baseUrl: 'https://example.test',
+        baseUrl: 'https://temanrawat.test',
         client: MockClient((request) async {
-          requests++;
           final payload = jsonDecode(request.body) as Json;
-          expect(payload['request_id'], isA<String>());
-          expect(payload['input_version'], isA<int>());
-          expect(payload.containsKey('patient'), isFalse);
           if (request.url.path == '/api/meal-plans/generate') {
-            expect(payload['health_condition'], {
-              'condition_name': 'Kondisi yang diinput',
-              'name': 'Pasien Uji',
-              'diagnosis': null,
-              'notes': null,
-              'age': 58,
-              'weight': 60.5,
-              'height': 160.0,
-              'isTherePrescription': true,
-            });
+            mealRequests++;
+            final hc = payload['health_condition'] as Json;
+            expect(hc['name'], 'Pak Budi');
+            expect(hc['condition_name'], 'Hipertensi');
+            expect(hc['age'], 62);
+            expect(hc['weight'], 65.5);
+            expect(hc['height'], 168.0);
+            expect(hc['isTherePrescription'], true);
             expect(payload['allergies'], [
-              {'type': 'kacang'},
+              {'type': 'Kacang'},
             ]);
-            expect(payload['budget'], 75000);
-            expect(payload.containsKey('stok_bahan'), isFalse);
-            expect(payload['preferensi'], ['makanan lembut']);
+            expect(payload['preferensi'], ['Rendah garam']);
+            expect(payload['budget'], 75000.0);
+
             return http.Response(
               jsonEncode({
                 'status': 'draft',
-                'meals': [recipe],
-                'questions': [],
-                'review_notes': [],
+                'meals': [generatedMeal],
+                'questions': <String>[],
+                'review_notes': <String>[],
               }),
               200,
+              headers: {'content-type': 'application/json; charset=utf-8'},
             );
           }
+
           expect(request.url.path, '/api/schedules/generate');
-          expect(payload['menu_disetujui'], [recipe]);
-          final prescription =
-              (payload['prescriptions'] as List).single as Json;
-          final medication =
-              (prescription['medications'] as List).single as Json;
-          expect(prescription['prescription_date'], '2026-11-07');
-          expect(prescription['start_at'], '2026-11-08');
-          expect(medication['prescription_id'], prescription['id']);
-          expect(medication['medicine_name'], 'Nama sesuai input uji');
-          expect(medication['quantity'], 10);
-          expect(medication['isAfterEat'], true);
-          expect(payload['rutinitas'], {'notes': 'Sarapan pukul 08.00'});
-          expect(payload['ketersediaan_caregiver'], {'notes': 'Tersedia pagi'});
+          scheduleRequests++;
+          final prescriptions = payload['prescriptions'] as List;
+          expect(prescriptions, hasLength(1));
+          final meds =
+              (prescriptions.single as Json)['medications'] as List;
+          expect(meds, hasLength(2));
+          expect((meds[0] as Json)['medicine_name'], 'Amlodipine');
+          expect((meds[1] as Json)['medicine_name'], 'Paracetamol');
+
           return http.Response(
             jsonEncode({
               'status': 'draft',
               'input_version': payload['input_version'],
               'reminders': [
                 {
-                  'title': 'Pengingat dari server uji',
-                  'schedule_at': '2026-11-07T08:00:00+07:00',
+                  'title': 'Sarapan: Sup Ayam Rendah Garam',
+                  'schedule_at': '07:00',
                   'status': 'pending',
-                  'prescription_id': prescription['id'],
+                  'prescription_id': null,
+                  'reminder_items': <Json>[],
+                },
+                {
+                  'title': 'Minum Amlodipine',
+                  'schedule_at': '07:30',
+                  'status': 'pending',
+                  'prescription_id': 1,
                   'reminder_items': [
-                    {'medication_id': medication['id']},
+                    {'medication_id': 1},
+                  ],
+                },
+                {
+                  'title': 'Minum Paracetamol',
+                  'schedule_at': '12:30',
+                  'status': 'pending',
+                  'prescription_id': 1,
+                  'reminder_items': [
+                    {'medication_id': 2},
                   ],
                 },
               ],
-              'conflicts': [],
-              'questions': [],
+              'conflicts': <String>[],
+              'questions': <String>[],
+            }),
+            200,
+            headers: {'content-type': 'application/json; charset=utf-8'},
+          );
+        }),
+      );
+      addTearDown(api.close);
+
+      await tester.pumpWidget(TemanRawatApp(api: api));
+      await tester.pumpAndSettle();
+
+      // Tap + button at bottom right
+      await tapWidget(tester, find.byType(FloatingActionButton));
+
+      // Step 1: Patient Name
+      await enterFieldAt(tester, 'Nama orang yang dirawat', 'Pak Budi');
+      await tapText(tester, 'Selanjutnya');
+
+      // Step 2: Health Condition + Has Prescription = Yes
+      await enterFieldAt(tester, 'Kondisi kesehatan', 'Hipertensi');
+      await enterFieldAt(tester, 'Usia (tahun)', '62');
+      await enterFieldAt(tester, 'Berat (kg)', '65,5');
+      await enterFieldAt(tester, 'Tinggi (cm)', '168');
+      await tapText(tester, 'Ya, Memiliki Resep Dokter');
+      await tapText(tester, 'Selanjutnya');
+
+      // Step 3: Doctor's Prescription & Medications
+      await enterFieldAt(tester, 'Nama obat', 'Amlodipine', index: 0);
+      await enterFieldAt(tester, 'Dosis', '5 mg', index: 0);
+      await enterFieldAt(tester, 'Jumlah', '30', index: 0);
+      await enterFieldAt(tester, 'Frekuensi minum', '1x sehari', index: 0);
+      await enterFieldAt(
+        tester,
+        'Instruksi waktu minum',
+        'Pagi setelah sarapan',
+        index: 0,
+      );
+
+      // Add a second medication
+      await tapText(tester, 'Tambah Obat Lainnya');
+      await enterFieldAt(tester, 'Nama obat', 'Paracetamol', index: 1);
+      await enterFieldAt(tester, 'Dosis', '500 mg', index: 1);
+      await enterFieldAt(tester, 'Jumlah', '10', index: 1);
+      await enterFieldAt(tester, 'Frekuensi minum', '3x sehari', index: 1);
+      await enterFieldAt(
+        tester,
+        'Instruksi waktu minum',
+        'Bila demam sesudah makan',
+        index: 1,
+      );
+
+      await tapText(tester, 'Selesai & Lanjut');
+
+      // Step 4: Allergies, Food Preferences & Budget
+      await tapText(tester, 'Kacang');
+      await tapText(tester, 'Rendah garam');
+      await enterFieldAt(tester, 'Budget makanan (Rupiah)', '75000');
+      await tapText(tester, 'Selanjutnya');
+
+      // Step 5: Generated Meals shown from API
+      expect(mealRequests, 1);
+      expect(find.text('Sup Ayam Rendah Garam'), findsOneWidget);
+
+      // Generate Schedule & Finish
+      await tapText(tester, 'Buat Jadwal Makan & Obat');
+      expect(scheduleRequests, 1);
+
+      // Now on PatientCareDetailPage (Jadwal & Resep)
+      expect(find.text('Jadwal & Resep'), findsOneWidget);
+      expect(find.text('Sarapan: Sup Ayam Rendah Garam'), findsOneWidget);
+      expect(find.text('Minum Amlodipine'), findsOneWidget);
+      expect(find.text('Minum Paracetamol'), findsOneWidget);
+
+      // Switch to Resep tab to verify generated recipe & prescription list
+      await tapText(tester, 'Resep (1)');
+      expect(find.text('Sup Ayam Rendah Garam'), findsOneWidget);
+      expect(find.text('Amlodipine'), findsOneWidget);
+      expect(find.text('Paracetamol'), findsOneWidget);
+
+      // Return to Home -> verify patient listed with status Belum Selesai
+      await tapWidget(tester, find.byTooltip('Kembali ke Beranda'));
+      expect(find.text('Pak Budi'), findsOneWidget);
+      expect(
+        find.descendant(
+          of: find.byType(ScheduleStatusBadge),
+          matching: find.text('Belum Selesai'),
+        ),
+        findsOneWidget,
+      );
+      expect(find.text('0/3 jadwal'), findsOneWidget);
+
+      // Re-open Pak Budi, complete all schedules, and verify Home shows Jadwal Selesai
+      await tapText(tester, 'Pak Budi');
+      await tapText(tester, 'Selesaikan Semua');
+      expect(
+        find.descendant(
+          of: find.byType(ScheduleStatusBadge),
+          matching: find.text('Jadwal Selesai'),
+        ),
+        findsOneWidget,
+      );
+
+      await tapWidget(tester, find.byTooltip('Kembali ke Beranda'));
+      expect(find.text('Pak Budi'), findsOneWidget);
+      expect(
+        find.descendant(
+          of: find.byType(ScheduleStatusBadge),
+          matching: find.text('Jadwal Selesai'),
+        ),
+        findsOneWidget,
+      );
+      expect(find.text('3/3 jadwal'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets(
+    'skips prescription step when patient does not have a doctor prescription',
+    (tester) async {
+      usePhone(tester);
+      final api = CareApi(
+        baseUrl: 'https://temanrawat.test',
+        client: MockClient((request) async {
+          final payload = jsonDecode(request.body) as Json;
+          if (request.url.path == '/api/meal-plans/generate') {
+            final hc = payload['health_condition'] as Json;
+            expect(hc['isTherePrescription'], false);
+            return http.Response(
+              jsonEncode({
+                'status': 'draft',
+                'meals': [
+                  {
+                    'recipe_name': 'Bubur Oat Pisang',
+                    'servings': 1,
+                    'cooking_time': 15,
+                    'instructions': 'Masak oat dengan air hangat.',
+                    'ingredients': [
+                      {'ingredient_name': 'Oat', 'quantity': '50 g'},
+                    ],
+                  },
+                ],
+                'questions': <String>[],
+                'review_notes': <String>[],
+              }),
+              200,
+            );
+          }
+          expect(payload['prescriptions'], isEmpty);
+          return http.Response(
+            jsonEncode({
+              'status': 'draft',
+              'input_version': payload['input_version'],
+              'reminders': [
+                {
+                  'title': 'Sarapan: Bubur Oat Pisang',
+                  'schedule_at': '07:30',
+                  'status': 'pending',
+                  'prescription_id': null,
+                  'reminder_items': <Json>[],
+                },
+              ],
+              'conflicts': <String>[],
+              'questions': <String>[],
             }),
             200,
           );
         }),
       );
       addTearDown(api.close);
-      await startCare(tester, api: api);
-      await tapText(tester, 'Isi profil dan kebutuhan makan');
-      for (final (label, value) in [
-        ('Kondisi kesehatan', 'Kondisi yang diinput'),
-        ('Usia (tahun)', '58'),
-        ('Berat (kg)', '60,5'),
-        ('Tinggi (cm)', '160'),
-        ('Alergi, pisahkan dengan koma', 'kacang'),
-        ('Budget belanja (rupiah)', '75000'),
-        ('Preferensi, pisahkan dengan koma', 'makanan lembut'),
-      ]) {
-        await enterField(tester, label, value);
-      }
-      await tapText(tester, 'Simpan profil perawatan');
-      await tapText(tester, 'Tambah resep');
-      await chooseDate(tester, 'Tanggal resep (YYYY-MM-DD)', '2026-11-07');
-      await chooseDate(tester, 'Tanggal mulai (YYYY-MM-DD)', '2026-11-08');
-      await tapText(tester, 'Tambah obat');
-      for (final (label, value) in [
-        ('Nama obat', 'Nama sesuai input uji'),
-        ('Dosis', 'Dosis uji'),
-        ('Frekuensi', 'Frekuensi uji'),
-        ('Instruksi dari resep', 'Instruksi uji'),
-        ('Jumlah', '10'),
-      ]) {
-        await enterField(tester, label, value);
-      }
-      await tapText(tester, 'Diminum setelah makan sesuai resep');
-      await tapText(tester, 'Simpan obat');
-      await tapText(tester, 'Simpan resep');
-      await tapText(tester, 'Menu');
-      await tapText(tester, 'Buat draf menu');
-      expect(find.text('Resep dari server uji'), findsOneWidget);
-      await tapText(tester, 'Isi rutinitas pendampingan');
-      await enterField(tester, 'Rutinitas harian', 'Sarapan pukul 08.00');
-      await enterField(tester, 'Ketersediaan pendamping', 'Tersedia pagi');
-      await tapText(tester, 'Simpan rutinitas');
-      await tapText(tester, 'Setujui menu dan buat jadwal');
-      expect(find.text('Pengingat dari server uji'), findsOneWidget);
+
+      await tester.pumpWidget(TemanRawatApp(api: api));
+      await tester.pumpAndSettle();
+
+      await tapWidget(tester, find.byType(FloatingActionButton));
+      await enterFieldAt(tester, 'Nama orang yang dirawat', 'Ibu Rina');
+      await tapText(tester, 'Selanjutnya');
+
+      await enterFieldAt(tester, 'Kondisi kesehatan', 'Pemulihan');
+      await enterFieldAt(tester, 'Usia (tahun)', '55');
+      await enterFieldAt(tester, 'Berat (kg)', '54');
+      await enterFieldAt(tester, 'Tinggi (cm)', '156');
+      await tapText(tester, 'Tidak Memiliki Resep Dokter');
+      await tapText(tester, 'Selanjutnya');
+
+      // Directly on Allergies, Preferences & Budget step (prescription skipped)
       expect(
-        find.textContaining('Nama sesuai input uji · Dosis uji'),
+        find.text('Alergi, preferensi, dan budget makanan'),
         findsOneWidget,
       );
-      await tapText(tester, 'Setujui dan masukkan ke agenda');
-      await completeAndSaveAgenda(tester);
-      await tapText(tester, 'Riwayat');
-      expect(find.text('Pengingat dari server uji'), findsOneWidget);
-      expect(requests, 2);
+      await enterFieldAt(tester, 'Budget makanan (Rupiah)', '50000');
+      await tapText(tester, 'Selanjutnya');
+
+      expect(find.text('Bubur Oat Pisang'), findsOneWidget);
+      await tapText(tester, 'Buat Jadwal Makan & Obat');
+
+      expect(find.text('Jadwal & Resep'), findsOneWidget);
+      await tapWidget(tester, find.byTooltip('Kembali ke Beranda'));
+      expect(find.text('Ibu Rina'), findsOneWidget);
+      expect(find.text('Tanpa Resep'), findsOneWidget);
       expect(tester.takeException(), isNull);
     },
   );

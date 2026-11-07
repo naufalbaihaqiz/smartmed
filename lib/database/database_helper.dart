@@ -100,6 +100,9 @@ class DatabaseHelper {
         "ADD COLUMN name VARCHAR(255) NOT NULL DEFAULT ''",
       );
     }
+    if (oldVersion < 4) {
+      await db.execute(DatabaseTables.createCarePlansTable);
+    }
   }
 
   /// Menutup koneksi database yang sedang aktif.

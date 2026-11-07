@@ -3,7 +3,7 @@ class DatabaseTables {
   DatabaseTables._();
 
   static const String databaseName = 'smartmed_local.db';
-  static const int databaseVersion = 3;
+  static const int databaseVersion = 4;
 
   // Nama-nama tabel
   static const String healthCondition = 'health_condition';
@@ -15,6 +15,7 @@ class DatabaseTables {
   static const String recipes = 'recipes';
   static const String recipeIngredients = 'recipe_ingredients';
   static const String recipeNutrition = 'recipe_nutrition';
+  static const String carePlans = 'care_plans';
 
   /// Daftar seluruh nama tabel berurutan berdasarkan dependensi Foreign Key.
   static const List<String> allTables = [
@@ -160,6 +161,17 @@ class DatabaseTables {
     )
   ''';
 
+  // 10. care_plans (menyimpan profil pasien lengkap, resep, dan jadwal harian)
+  static const String createCarePlansTable = '''
+    CREATE TABLE IF NOT EXISTS $carePlans (
+      id TEXT PRIMARY KEY,
+      patient_name TEXT NOT NULL,
+      plan_json TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )
+  ''';
+
   /// Daftar statement pembuatan tabel sesuai urutan Foreign Key.
   static const List<String> createTableStatements = [
     createHealthConditionTable,
@@ -171,6 +183,7 @@ class DatabaseTables {
     createRecipesTable,
     createRecipeIngredientsTable,
     createRecipeNutritionTable,
+    createCarePlansTable,
   ];
 
   /// Index untuk mempercepat query relasi Foreign Key dan jadwal pengingat.

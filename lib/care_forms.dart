@@ -1,28 +1,44 @@
 import 'package:flutter/material.dart';
 
-import 'care_api.dart';
+import 'palette.dart';
 
-String? _required(String? input) =>
-    input == null || input.trim().isEmpty ? 'Wajib diisi.' : null;
+String? validateRequired(String? input, [String message = 'Wajib diisi.']) =>
+    input == null || input.trim().isEmpty ? message : null;
 
-double? _decimal(String? input) =>
+double? parseFlexibleDouble(String? input) =>
     double.tryParse((input ?? '').trim().replaceAll(',', '.'));
 
-String? _positive(String? input) {
-  final value = _decimal(input);
+double? parseRupiah(String? input) {
+  final raw = (input ?? '').trim().replaceAll(RegExp(r'[Rp\s]'), '');
+  if (raw.isEmpty) return null;
+  if (RegExp(r'^\d{1,3}(\.\d{3})+(,\d+)?$').hasMatch(raw)) {
+    return double.tryParse(raw.replaceAll('.', '').replaceAll(',', '.'));
+  }
+  return double.tryParse(raw.replaceAll(',', '.'));
+}
+
+String? validateRupiah(String? input) {
+  final value = parseRupiah(input);
+  return value != null && value.isFinite && value > 0
+      ? null
+      : 'Masukkan nominal budget lebih dari nol.';
+}
+
+String? validatePositiveNumber(String? input) {
+  final value = parseFlexibleDouble(input);
   return value != null && value.isFinite && value > 0
       ? null
       : 'Masukkan angka lebih dari nol.';
 }
 
-String? _integer(String? input) {
+String? validatePositiveInt(String? input) {
   final value = int.tryParse((input ?? '').trim());
-  return value != null && value >= 0
+  return value != null && value > 0
       ? null
-      : 'Masukkan bilangan bulat minimal nol.';
+      : 'Masukkan bilangan bulat lebih dari nol.';
 }
 
-String? _date(String? input) {
+String? validateIsoDate(String? input) {
   final value = (input ?? '').trim();
   final date = DateTime.tryParse(value);
   if (date == null || date.toIso8601String().split('T').first != value) {
@@ -31,75 +47,37 @@ String? _date(String? input) {
   return null;
 }
 
-List<String> _items(String input) => input
+List<String> splitCsvItems(String input) => input
     .split(RegExp(r'[,\n]'))
     .map((item) => item.trim())
     .where((item) => item.isNotEmpty)
     .toList();
 
-String? _optional(String input) => input.isEmpty ? null : input;
-
-class CareFormField extends StatelessWidget {
-  const CareFormField(
-    this.label, {
-    super.key,
-    this.initialValue,
-    this.validator,
-    required this.onSaved,
-    this.keyboardType,
-    this.maxLines = 1,
-  });
-
-  final String label;
-  final String? initialValue;
-  final String? Function(String?)? validator;
-  final void Function(String) onSaved;
-  final TextInputType? keyboardType;
-  final int maxLines;
-
-  @override
-  Widget build(BuildContext context) => Padding(
-    padding: const EdgeInsets.only(bottom: 14),
-    child: TextFormField(
-      initialValue: initialValue,
-      validator: validator,
-      keyboardType: keyboardType,
-      maxLines: maxLines,
-      decoration: InputDecoration(labelText: label, alignLabelWithHint: true),
-      onSaved: (value) => onSaved((value ?? '').trim()),
-    ),
-  );
+String formatIsoDate(DateTime date) {
+  String two(int v) => v.toString().padLeft(2, '0');
+  return '${date.year}-${two(date.month)}-${two(date.day)}';
 }
 
 class CalendarDateField extends StatefulWidget {
-  const CalendarDateField(
-    this.label, {
+  const CalendarDateField({
     super.key,
-    this.initialValue,
-    this.validator,
-    required this.onSaved,
+    required this.label,
+    required this.controller,
+    this.validator = validateIsoDate,
   });
 
   final String label;
-  final String? initialValue;
+  final TextEditingController controller;
   final String? Function(String?)? validator;
-  final void Function(String) onSaved;
 
   @override
   State<CalendarDateField> createState() => _CalendarDateFieldState();
 }
 
 class _CalendarDateFieldState extends State<CalendarDateField> {
-  late final controller = TextEditingController(text: widget.initialValue);
-
-  @override
-  void dispose() {
-    controller.dispose();
-    super.dispose();
-  }
-
   Future<void> _pickDate() async {
-    final initialDate = DateTime.tryParse(controller.text) ?? DateTime.now();
+    final initialDate =
+        DateTime.tryParse(widget.controller.text) ?? DateTime.now();
     var selectedDate = initialDate;
     final result = await showDialog<DateTime>(
       context: context,
@@ -107,10 +85,10 @@ class _CalendarDateFieldState extends State<CalendarDateField> {
         title: Text(widget.label),
         content: SizedBox(
           width: 320,
-          height: 360,
+          height: 340,
           child: CalendarDatePicker(
             initialDate: initialDate,
-            firstDate: DateTime(1900),
+            firstDate: DateTime(2000),
             lastDate: DateTime(2100),
             onDateChanged: (date) => selectedDate = date,
           ),
@@ -128,310 +106,111 @@ class _CalendarDateFieldState extends State<CalendarDateField> {
       ),
     );
     if (result == null || !mounted) return;
-    String two(int value) => value.toString().padLeft(2, '0');
     setState(() {
-      controller.text =
-          '${result.year}-${two(result.month)}-${two(result.day)}';
+      widget.controller.text = formatIsoDate(result);
     });
   }
 
   @override
-  Widget build(BuildContext context) => Padding(
-    padding: const EdgeInsets.only(bottom: 14),
-    child: TextFormField(
-      controller: controller,
-      readOnly: true,
-      showCursor: false,
-      enableInteractiveSelection: false,
-      validator: widget.validator,
-      onTap: _pickDate,
-      decoration: InputDecoration(
-        labelText: widget.label,
-        suffixIcon: IconButton(
-          tooltip: 'Pilih tanggal dari kalender',
-          onPressed: _pickDate,
-          icon: const Icon(Icons.calendar_month_outlined),
-        ),
+  Widget build(BuildContext context) => TextFormField(
+    controller: widget.controller,
+    readOnly: true,
+    validator: widget.validator,
+    onTap: _pickDate,
+    decoration: InputDecoration(
+      labelText: widget.label,
+      suffixIcon: IconButton(
+        tooltip: 'Pilih tanggal',
+        onPressed: _pickDate,
+        icon: const Icon(Icons.calendar_month_outlined, color: teal),
       ),
-      onSaved: (value) => widget.onSaved((value ?? '').trim()),
     ),
   );
 }
 
-class MealInputForm extends StatefulWidget {
-  const MealInputForm({
+/// Kartu pilihan interaktif (misal: Ya, Ada Resep Dokter vs Tidak Ada Resep).
+class SelectableOptionCard extends StatelessWidget {
+  const SelectableOptionCard({
     super.key,
-    required this.input,
-    required this.hasPrescription,
+    required this.title,
+    required this.subtitle,
+    required this.icon,
+    required this.selected,
+    required this.onTap,
   });
 
-  final Json? input;
-  final bool hasPrescription;
+  final String title;
+  final String subtitle;
+  final IconData icon;
+  final bool selected;
+  final VoidCallback onTap;
 
   @override
-  State<MealInputForm> createState() => _MealInputFormState();
-}
-
-class _MealInputFormState extends State<MealInputForm> {
-  final form = GlobalKey<FormState>();
-  final values = <String, String>{};
-
-  @override
-  Widget build(BuildContext context) {
-    final input = widget.input;
-    final health = input?['health_condition'] as Json?;
-
-    CareFormField field(
-      String label,
-      String key, {
-      String? initial,
-      String? Function(String?)? validator,
-      TextInputType? keyboard,
-      int lines = 1,
-    }) => CareFormField(
-      label,
-      initialValue: initial,
-      validator: validator,
-      keyboardType: keyboard,
-      maxLines: lines,
-      onSaved: (value) => values[key] = value,
-    );
-
-    return Form(
-      key: form,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          field(
-            'Kondisi kesehatan',
-            'condition_name',
-            initial: health?['condition_name'] as String?,
-            validator: _required,
-          ),
-          field(
-            'Diagnosis dari konsultasi (opsional)',
-            'diagnosis',
-            initial: health?['diagnosis'] as String?,
-          ),
-          field(
-            'Catatan (opsional)',
-            'notes',
-            initial: health?['notes'] as String?,
-            lines: 2,
-          ),
-          field(
-            'Usia (tahun)',
-            'age',
-            initial: health?['age']?.toString(),
-            validator: _integer,
-            keyboard: TextInputType.number,
-          ),
-          field(
-            'Berat (kg)',
-            'weight',
-            initial: health?['weight']?.toString(),
-            validator: _positive,
-            keyboard: const TextInputType.numberWithOptions(decimal: true),
-          ),
-          field(
-            'Tinggi (cm)',
-            'height',
-            initial: health?['height']?.toString(),
-            validator: _positive,
-            keyboard: const TextInputType.numberWithOptions(decimal: true),
-          ),
-          field(
-            'Alergi, pisahkan dengan koma',
-            'allergies',
-            initial: (input?['allergies'] as List<Json>?)
-                ?.map((a) => a['type'])
-                .join(', '),
-          ),
-          field(
-            'Budget belanja (rupiah)',
-            'budget',
-            initial: input?['budget']?.toString(),
-            validator: _positive,
-            keyboard: const TextInputType.numberWithOptions(decimal: true),
-          ),
-          field(
-            'Preferensi, pisahkan dengan koma',
-            'preferensi',
-            initial: (input?['preferensi'] as List<String>?)?.join(', '),
-          ),
-          FilledButton(
-            onPressed: () {
-              if (!form.currentState!.validate()) return;
-              form.currentState!.save();
-              Navigator.pop(context, <String, dynamic>{
-                'health_condition': <String, dynamic>{
-                  'condition_name': values['condition_name'],
-                  'diagnosis': _optional(values['diagnosis']!),
-                  'notes': _optional(values['notes']!),
-                  'age': int.parse(values['age']!),
-                  'weight': _decimal(values['weight']),
-                  'height': _decimal(values['height']),
-                  'isTherePrescription': widget.hasPrescription,
-                },
-                'allergies': _items(values['allergies']!)
-                    .map<Json>((type) => {'type': type})
-                    .toList(),
-                'budget': _decimal(values['budget']),
-                'preferensi': _items(values['preferensi']!),
-              });
-            },
-            child: const Text('Simpan profil perawatan'),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class PrescriptionForm extends StatefulWidget {
-  const PrescriptionForm({super.key});
-
-  @override
-  State<PrescriptionForm> createState() => _PrescriptionFormState();
-}
-
-class _PrescriptionFormState extends State<PrescriptionForm> {
-  final form = GlobalKey<FormState>();
-  final values = <String, String>{};
-  final medications = <Json>[];
-
-  @override
-  Widget build(BuildContext context) => Form(
-    key: form,
-    child: Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        const Text('Salin informasi obat dari resep yang kamu miliki.'),
-        const SizedBox(height: 14),
-        for (final (key, label) in [
-          ('prescription_date', 'Tanggal resep (YYYY-MM-DD)'),
-          ('start_at', 'Tanggal mulai (YYYY-MM-DD)'),
-        ])
-          CalendarDateField(
-            label,
-            validator: _date,
-            onSaved: (value) => values[key] = value,
-          ),
-        CareFormField(
-          'Catatan resep (opsional)',
-          onSaved: (value) => values['notes'] = value,
-        ),
-        for (var i = 0; i < medications.length; i++)
-          ListTile(
-            title: Text(medications[i]['medicine_name'] as String),
-            subtitle: Text(medications[i]['instruction'] as String),
-            trailing: IconButton(
-              tooltip: 'Hapus obat',
-              icon: const Icon(Icons.close),
-              onPressed: () => setState(() => medications.removeAt(i)),
-            ),
-          ),
-        OutlinedButton.icon(
-          onPressed: () async {
-            final medication = await showDialog<Json>(
-              context: context,
-              builder: (context) => const _MedicationDialog(),
-            );
-            if (mounted && medication != null) {
-              setState(() => medications.add(medication));
-            }
-          },
-          icon: const Icon(Icons.add),
-          label: const Text('Tambah obat'),
-        ),
-        const SizedBox(height: 12),
-        FilledButton(
-          onPressed: medications.isEmpty
-              ? null
-              : () {
-                  if (!form.currentState!.validate()) return;
-                  form.currentState!.save();
-                  Navigator.pop(context, <String, dynamic>{
-                    'prescription_date': values['prescription_date'],
-                    'start_at': values['start_at'],
-                    'status': 'active',
-                    'notes': _optional(values['notes']!),
-                    'medications': medications,
-                  });
-                },
-          child: const Text('Simpan resep'),
-        ),
-      ],
-    ),
-  );
-}
-
-class _MedicationDialog extends StatefulWidget {
-  const _MedicationDialog();
-
-  @override
-  State<_MedicationDialog> createState() => _MedicationDialogState();
-}
-
-class _MedicationDialogState extends State<_MedicationDialog> {
-  final form = GlobalKey<FormState>();
-  final values = <String, String>{};
-  bool afterEating = false;
-
-  @override
-  Widget build(BuildContext context) => AlertDialog(
-    title: const Text('Tambah obat dari resep'),
-    scrollable: true,
-    content: Form(
-      key: form,
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          for (final (key, label) in [
-            ('medicine_name', 'Nama obat'),
-            ('dosage', 'Dosis'),
-            ('frequency', 'Frekuensi'),
-            ('instruction', 'Instruksi dari resep'),
-            ('quantity', 'Jumlah'),
-            ('notes', 'Catatan obat (opsional)'),
-          ])
-            CareFormField(
-              label,
-              validator: switch (key) {
-                'quantity' => _integer,
-                'notes' => null,
-                _ => _required,
-              },
-              keyboardType: key == 'quantity' ? TextInputType.number : null,
-              onSaved: (value) => values[key] = value,
-            ),
-          CheckboxListTile(
-            contentPadding: EdgeInsets.zero,
-            title: const Text('Diminum setelah makan sesuai resep'),
-            value: afterEating,
-            onChanged: (value) => setState(() => afterEating = value ?? false),
-          ),
-        ],
+  Widget build(BuildContext context) => AnimatedContainer(
+    duration: const Duration(milliseconds: 180),
+    decoration: BoxDecoration(
+      color: selected ? paleTeal : paper,
+      borderRadius: BorderRadius.circular(16),
+      border: Border.all(
+        color: selected ? teal : line,
+        width: selected ? 1.8 : 1,
       ),
     ),
-    actions: [
-      TextButton(
-        onPressed: () => Navigator.pop(context),
-        child: const Text('Batal'),
+    child: Material(
+      type: MaterialType.transparency,
+      borderRadius: BorderRadius.circular(16),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.all(15),
+          child: Row(
+            children: [
+              Container(
+                width: 42,
+                height: 42,
+                decoration: BoxDecoration(
+                  color: selected ? teal : slate,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(
+                  icon,
+                  size: 21,
+                  color: selected ? Colors.white : muted,
+                ),
+              ),
+              const SizedBox(width: 13),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: TextStyle(
+                        fontWeight: FontWeight.w700,
+                        fontSize: 14.5,
+                        color: selected ? ink : ink.withValues(alpha: 0.9),
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      subtitle,
+                      style: const TextStyle(fontSize: 12.5, color: muted),
+                    ),
+                  ],
+                ),
+              ),
+              Icon(
+                selected
+                    ? Icons.radio_button_checked_rounded
+                    : Icons.radio_button_off_rounded,
+                color: selected ? teal : muted,
+                size: 22,
+              ),
+            ],
+          ),
+        ),
       ),
-      FilledButton(
-        onPressed: () {
-          if (!form.currentState!.validate()) return;
-          form.currentState!.save();
-          Navigator.pop(context, <String, dynamic>{
-            ...values,
-            'quantity': int.parse(values['quantity']!),
-            'notes': _optional(values['notes']!),
-            'isAfterEat': afterEating,
-          });
-        },
-        child: const Text('Simpan obat'),
-      ),
-    ],
+    ),
   );
 }

@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:smartmed_nutricare/database/database_helper.dart';
 import 'package:smartmed_nutricare/database/database_tables.dart';
+import 'package:smartmed_nutricare/models/care_plan.dart';
 import 'package:smartmed_nutricare/models/models.dart';
 import 'package:smartmed_nutricare/repositories/repositories.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
@@ -197,5 +198,65 @@ void main() {
       expect(await recipeRepo.getNutritionByRecipe(recipeId), isNull);
     },
   );
+
+  test('SqliteCarePlanStore menyimpan dan memperbarui status jadwal pasien', () async {
+    final store = SqliteCarePlanStore(dbHelper: dbHelper);
+    final plan = PatientCarePlan(
+      id: 'patient-1',
+      patientName: 'Ibu Sari',
+      healthCondition: {
+        'condition_name': 'Hipertensi',
+        'name': 'Ibu Sari',
+        'age': 60,
+        'weight': 55.0,
+        'height': 155.0,
+        'isTherePrescription': false,
+      },
+      prescriptions: const [],
+      allergies: const [],
+      preferensi: const ['Rendah garam'],
+      budget: 50000,
+      meals: const [
+        {
+          'recipe_name': 'Sup Ayam',
+          'servings': 1,
+          'cooking_time': 20,
+          'instructions': 'Rebus ayam.',
+          'ingredients': [],
+        },
+      ],
+      reminders: const [
+        {
+          'title': 'Sarapan Sup Ayam',
+          'schedule_at': '2026-11-07T07:00:00',
+          'status': 'pending',
+          'reminder_items': [],
+        },
+      ],
+    );
+
+    await store.save(plan);
+    var loaded = await store.loadAll();
+    expect(loaded, hasLength(1));
+    expect(loaded.first.patientName, 'Ibu Sari');
+    expect(loaded.first.isScheduleCompleted, isFalse);
+
+    final completed = plan.copyWith(
+      reminders: const [
+        {
+          'title': 'Sarapan Sup Ayam',
+          'schedule_at': '2026-11-07T07:00:00',
+          'status': 'completed',
+          'reminder_items': [],
+        },
+      ],
+    );
+    await store.save(completed);
+    loaded = await store.loadAll();
+    expect(loaded.first.isScheduleCompleted, isTrue);
+
+    await store.delete('patient-1');
+    expect(await store.loadAll(), isEmpty);
+  });
 }
 

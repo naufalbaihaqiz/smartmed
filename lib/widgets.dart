@@ -2,29 +2,93 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
+import 'care_api.dart';
 import 'care_mark.dart';
 import 'palette.dart';
 
+/// Pembungkus responsif agar tampilan selalu proporsional di ponsel maupun layar lebar.
+class MobileFrame extends StatelessWidget {
+  const MobileFrame({
+    super.key,
+    required this.child,
+    this.backgroundColor = cream,
+  });
+
+  final Widget child;
+  final Color backgroundColor;
+
+  @override
+  Widget build(BuildContext context) {
+    final screenWidth = MediaQuery.sizeOf(context).width;
+    final isWide = screenWidth > 520;
+    return ColoredBox(
+      color: isWide ? shellBackground : backgroundColor,
+      child: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 480),
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              color: backgroundColor,
+              boxShadow: isWide
+                  ? const [
+                      BoxShadow(
+                        color: Color(0x14113826),
+                        blurRadius: 32,
+                        offset: Offset(0, 8),
+                      ),
+                    ]
+                  : null,
+            ),
+            child: SizedBox.expand(child: child),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class Brand extends StatelessWidget {
-  const Brand({super.key, this.compact = false});
+  const Brand({super.key, this.compact = false, this.subtitle});
   final bool compact;
+  final String? subtitle;
+
   @override
   Widget build(BuildContext context) => Row(
     mainAxisSize: MainAxisSize.min,
     children: [
-      CareLogo(size: compact ? 36 : 42),
-      const SizedBox(width: 10),
+      CareLogo(size: compact ? 38 : 44),
+      const SizedBox(width: 11),
       Flexible(
-        child: Text(
-          'TemanRawat',
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: TextStyle(
-            fontSize: compact ? 18 : 22,
-            color: ink,
-            fontWeight: FontWeight.w800,
-            letterSpacing: -.7,
-          ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'TemanRawat',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontSize: compact ? 18.5 : 22,
+                color: ink,
+                fontWeight: FontWeight.w800,
+                letterSpacing: -.6,
+                height: 1.1,
+              ),
+            ),
+            if (subtitle != null) ...[
+              const SizedBox(height: 2),
+              Text(
+                subtitle!,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  fontSize: 11.5,
+                  color: muted,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ],
+          ],
         ),
       ),
     ],
@@ -32,86 +96,108 @@ class Brand extends StatelessWidget {
 }
 
 class Eyebrow extends StatelessWidget {
-  const Eyebrow(this.text, {super.key});
+  const Eyebrow(this.text, {super.key, this.color = teal});
   final String text;
+  final Color color;
+
   @override
   Widget build(BuildContext context) => Text(
-    text,
-    style: const TextStyle(
-      color: muted,
-      fontSize: 10,
-      letterSpacing: 1.5,
-      fontWeight: FontWeight.w600,
+    text.toUpperCase(),
+    style: TextStyle(
+      color: color,
+      fontSize: 10.5,
+      letterSpacing: 1.3,
+      fontWeight: FontWeight.w700,
     ),
   );
 }
 
 class Surface extends StatelessWidget {
-  const Surface({super.key, required this.child});
+  const Surface({
+    super.key,
+    required this.child,
+    this.padding = const EdgeInsets.all(18),
+    this.color = paper,
+    this.borderColor = line,
+    this.onTap,
+  });
+
   final Widget child;
+  final EdgeInsetsGeometry padding;
+  final Color color;
+  final Color borderColor;
+  final VoidCallback? onTap;
+
   @override
-  Widget build(BuildContext context) => Container(
-    width: double.infinity,
-    padding: const EdgeInsets.all(20),
-    decoration: BoxDecoration(
-      color: paper,
-      borderRadius: BorderRadius.circular(17),
-      border: Border.all(color: line),
-      boxShadow: const [
-        BoxShadow(
-          color: Color(0x08173D2B),
-          blurRadius: 16,
-          offset: Offset(0, 6),
-        ),
-      ],
-    ),
-    child: child,
-  );
+  Widget build(BuildContext context) {
+    final box = Container(
+      width: double.infinity,
+      decoration: BoxDecoration(
+        color: color,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: borderColor),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x0A143526),
+            blurRadius: 18,
+            offset: Offset(0, 6),
+          ),
+        ],
+      ),
+      child: Material(
+        type: MaterialType.transparency,
+        borderRadius: BorderRadius.circular(18),
+        clipBehavior: Clip.antiAlias,
+        child: onTap == null
+            ? Padding(padding: padding, child: child)
+            : InkWell(
+                onTap: onTap,
+                child: Padding(padding: padding, child: child),
+              ),
+      ),
+    );
+    return box;
+  }
 }
 
 class BadgePill extends StatelessWidget {
-  const BadgePill(this.text, {super.key, this.color = paleTeal});
+  const BadgePill(
+    this.text, {
+    super.key,
+    this.color = paleTeal,
+    this.textColor = ink,
+    this.icon,
+  });
+
   final String text;
   final Color color;
+  final Color textColor;
+  final IconData? icon;
+
   @override
   Widget build(BuildContext context) => Container(
-    padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 6),
+    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
     decoration: BoxDecoration(
       color: color,
-      borderRadius: BorderRadius.circular(7),
-    ),
-    child: Text(
-      text,
-      style: const TextStyle(
-        color: ink,
-        fontSize: 11,
-        fontWeight: FontWeight.w600,
-      ),
-    ),
-  );
-}
-
-class Notice extends StatelessWidget {
-  const Notice({super.key, required this.text, required this.icon});
-  final String text;
-  final IconData icon;
-  @override
-  Widget build(BuildContext context) => Container(
-    width: double.infinity,
-    padding: const EdgeInsets.all(17),
-    decoration: BoxDecoration(
-      color: paleTeal,
-      borderRadius: BorderRadius.circular(10),
+      borderRadius: BorderRadius.circular(999),
     ),
     child: Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
       children: [
-        Icon(icon, color: teal, size: 20),
-        const SizedBox(width: 12),
-        Expanded(
+        if (icon != null) ...[
+          Icon(icon, size: 13.5, color: textColor),
+          const SizedBox(width: 5),
+        ],
+        Flexible(
           child: Text(
             text,
-            style: const TextStyle(color: teal, fontSize: 12, height: 1.7),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              color: textColor,
+              fontSize: 11.5,
+              fontWeight: FontWeight.w700,
+            ),
           ),
         ),
       ],
@@ -119,21 +205,98 @@ class Notice extends StatelessWidget {
   );
 }
 
+/// Lencana status jadwal pasien (Jadwal Selesai vs Belum Selesai).
+class ScheduleStatusBadge extends StatelessWidget {
+  const ScheduleStatusBadge({super.key, required this.completed});
+
+  final bool completed;
+
+  @override
+  Widget build(BuildContext context) => BadgePill(
+    completed ? 'Jadwal Selesai' : 'Belum Selesai',
+    color: completed ? successSoft : warningSoft,
+    textColor: completed ? successGreen : warningAmber,
+    icon: completed ? Icons.check_circle_rounded : Icons.schedule_rounded,
+  );
+}
+
+class Notice extends StatelessWidget {
+  const Notice({
+    super.key,
+    required this.text,
+    required this.icon,
+    this.isError = false,
+  });
+
+  final String text;
+  final IconData icon;
+  final bool isError;
+
+  @override
+  Widget build(BuildContext context) {
+    final bg = isError ? softRed : paleTeal;
+    final fg = isError ? red : teal;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(15),
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: fg.withValues(alpha: 0.2),
+        ),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, color: fg, size: 20),
+          const SizedBox(width: 11),
+          Expanded(
+            child: Text(
+              text,
+              style: TextStyle(
+                color: fg,
+                fontSize: 13,
+                height: 1.5,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class IconTile extends StatelessWidget {
-  const IconTile(this.icon, {super.key, this.accent = false});
+  const IconTile(
+    this.icon, {
+    super.key,
+    this.accent = false,
+    this.backgroundColor,
+    this.iconColor,
+    this.size = 44,
+  });
 
   final IconData icon;
   final bool accent;
+  final Color? backgroundColor;
+  final Color? iconColor;
+  final double size;
 
   @override
   Widget build(BuildContext context) => Container(
-    width: 42,
-    height: 42,
+    width: size,
+    height: size,
     decoration: BoxDecoration(
-      color: accent ? ink : paleTeal,
-      borderRadius: BorderRadius.circular(9),
+      color: backgroundColor ?? (accent ? ink : paleTeal),
+      borderRadius: BorderRadius.circular(13),
     ),
-    child: Icon(icon, size: 21, color: accent ? signal : teal),
+    child: Icon(
+      icon,
+      size: size * 0.48,
+      color: iconColor ?? (accent ? signal : teal),
+    ),
   );
 }
 
@@ -143,22 +306,420 @@ class EmptyPanel extends StatelessWidget {
     required this.icon,
     required this.title,
     required this.description,
+    this.action,
   });
 
   final IconData icon;
   final String title, description;
+  final Widget? action;
 
   @override
   Widget build(BuildContext context) => Surface(
+    padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 28),
     child: Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        IconTile(icon),
-        const SizedBox(height: 12),
-        Text(title, style: Theme.of(context).textTheme.titleLarge),
-        const SizedBox(height: 6),
-        Text(description, style: const TextStyle(color: muted)),
+        Container(
+          width: 64,
+          height: 64,
+          decoration: BoxDecoration(
+            color: paleTeal,
+            borderRadius: BorderRadius.circular(20),
+          ),
+          child: Icon(icon, size: 30, color: teal),
+        ),
+        const SizedBox(height: 16),
+        Text(
+          title,
+          textAlign: TextAlign.center,
+          style: Theme.of(context).textTheme.titleLarge,
+        ),
+        const SizedBox(height: 8),
+        Text(
+          description,
+          textAlign: TextAlign.center,
+          style: const TextStyle(color: muted, fontSize: 13.5, height: 1.55),
+        ),
+        if (action != null) ...[
+          const SizedBox(height: 20),
+          action!,
+        ],
       ],
+    ),
+  );
+}
+
+/// Deretan ringkasan gizi (Kalori, Protein, Karbo, Lemak).
+class NutritionBadges extends StatelessWidget {
+  const NutritionBadges({super.key, required this.nutrition});
+
+  final Json nutrition;
+
+  String _fmt(Object? v) {
+    if (v is num) {
+      return v == v.roundToDouble()
+          ? v.round().toString()
+          : v.toStringAsFixed(1);
+    }
+    return '-';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final items = [
+      ('Kalori', '${_fmt(nutrition['calories'])} kkal', Icons.local_fire_department_rounded),
+      ('Protein', '${_fmt(nutrition['protein'])} g', Icons.fitness_center_rounded),
+      ('Karbo', '${_fmt(nutrition['carbohydrates'])} g', Icons.grain_rounded),
+      ('Lemak', '${_fmt(nutrition['fat'])} g', Icons.water_drop_outlined),
+    ];
+    return Wrap(
+      spacing: 8,
+      runSpacing: 8,
+      children: [
+        for (final (label, val, icon) in items)
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+            decoration: BoxDecoration(
+              color: slate,
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(icon, size: 14, color: teal),
+                const SizedBox(width: 5),
+                Text(
+                  '$label: ',
+                  style: const TextStyle(
+                    fontSize: 11.5,
+                    color: muted,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+                Text(
+                  val,
+                  style: const TextStyle(
+                    fontSize: 11.5,
+                    color: ink,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ],
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+/// Kartu resep makanan modern dengan detail bahan & cara memasak.
+class RecipeCard extends StatelessWidget {
+  const RecipeCard({
+    super.key,
+    required this.meal,
+    this.index = 0,
+  });
+
+  final Json meal;
+  final int index;
+
+  @override
+  Widget build(BuildContext context) {
+    final name = meal['recipe_name'] as String? ?? 'Menu Sehat';
+    final description = meal['description'] as String?;
+    final servings = meal['servings'] ?? 1;
+    final cookingTime = meal['cooking_time'] ?? 20;
+    final source = meal['source'] as String?;
+    final nutrition = meal['nutrition'] is Map
+        ? Map<String, dynamic>.from(meal['nutrition'] as Map)
+        : null;
+    final ingredients = (meal['ingredients'] as List? ?? const [])
+        .whereType<Map>()
+        .toList();
+
+    return Surface(
+      onTap: () => showRecipeDetailSheet(context, meal),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              IconTile(
+                index.isEven
+                    ? Icons.soup_kitchen_rounded
+                    : Icons.dinner_dining_rounded,
+                backgroundColor: paleTeal,
+                iconColor: teal,
+              ),
+              const SizedBox(width: 13),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      name,
+                      style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                        fontSize: 17,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Wrap(
+                      spacing: 10,
+                      runSpacing: 4,
+                      crossAxisAlignment: WrapCrossAlignment.center,
+                      children: [
+                        Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(
+                              Icons.people_alt_outlined,
+                              size: 14,
+                              color: muted,
+                            ),
+                            const SizedBox(width: 4),
+                            Text(
+                              '$servings porsi',
+                              style: const TextStyle(
+                                color: muted,
+                                fontSize: 12.5,
+                              ),
+                            ),
+                          ],
+                        ),
+                        Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(
+                              Icons.timer_outlined,
+                              size: 14,
+                              color: muted,
+                            ),
+                            const SizedBox(width: 4),
+                            Text(
+                              '$cookingTime menit',
+                              style: const TextStyle(
+                                color: muted,
+                                fontSize: 12.5,
+                              ),
+                            ),
+                          ],
+                        ),
+                        if (ingredients.isNotEmpty)
+                          Text(
+                            '· ${ingredients.length} bahan',
+                            style: const TextStyle(
+                              color: muted,
+                              fontSize: 12.5,
+                            ),
+                          ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              const Icon(Icons.chevron_right_rounded, color: muted),
+            ],
+          ),
+          if (description != null && description.trim().isNotEmpty) ...[
+            const SizedBox(height: 11),
+            Text(
+              description,
+              style: const TextStyle(color: muted, fontSize: 13.5, height: 1.45),
+            ),
+          ],
+          if (nutrition != null) ...[
+            const SizedBox(height: 12),
+            NutritionBadges(nutrition: nutrition),
+          ],
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: source != null && source.trim().isNotEmpty
+                    ? Align(
+                        alignment: Alignment.centerLeft,
+                        child: BadgePill(
+                          source,
+                          icon: Icons.auto_awesome_rounded,
+                        ),
+                      )
+                    : const SizedBox.shrink(),
+              ),
+              const SizedBox(width: 8),
+              const Text(
+                'Lihat detail',
+                style: TextStyle(
+                  color: teal,
+                  fontSize: 12.5,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const SizedBox(width: 4),
+              const Icon(Icons.arrow_forward_rounded, size: 15, color: teal),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+Future<void> showRecipeDetailSheet(BuildContext context, Json meal) {
+  final name = meal['recipe_name'] as String? ?? 'Detail Resep';
+  final description = meal['description'] as String?;
+  final servings = meal['servings'] ?? 1;
+  final cookingTime = meal['cooking_time'] ?? 20;
+  final instructions = meal['instructions'] as String? ?? '';
+  final source = meal['source'] as String?;
+  final ingredients = (meal['ingredients'] as List? ?? const [])
+      .whereType<Map>()
+      .map(Map<String, dynamic>.from)
+      .toList();
+  final nutrition = meal['nutrition'] is Map
+      ? Map<String, dynamic>.from(meal['nutrition'] as Map)
+      : null;
+
+  return showModalBottomSheet<void>(
+    context: context,
+    isScrollControlled: true,
+    useSafeArea: true,
+    showDragHandle: true,
+    backgroundColor: paper,
+    constraints: const BoxConstraints(maxWidth: 480),
+    shape: const RoundedRectangleBorder(
+      borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+    ),
+    builder: (context) => DraggableScrollableSheet(
+      expand: false,
+      initialChildSize: 0.78,
+      minChildSize: 0.5,
+      maxChildSize: 0.94,
+      builder: (context, controller) => ListView(
+        controller: controller,
+        padding: const EdgeInsets.fromLTRB(22, 4, 22, 28),
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    if (source != null && source.isNotEmpty) ...[
+                      BadgePill(source, icon: Icons.auto_awesome_rounded),
+                      const SizedBox(height: 8),
+                    ],
+                    Text(
+                      name,
+                      style: Theme.of(context).textTheme.headlineSmall,
+                    ),
+                  ],
+                ),
+              ),
+              IconButton(
+                onPressed: () => Navigator.pop(context),
+                icon: const Icon(Icons.close_rounded),
+                tooltip: 'Tutup',
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 12,
+            runSpacing: 8,
+            children: [
+              BadgePill(
+                '$servings porsi',
+                color: slate,
+                icon: Icons.people_alt_outlined,
+              ),
+              BadgePill(
+                '$cookingTime menit memasak',
+                color: slate,
+                icon: Icons.timer_outlined,
+              ),
+            ],
+          ),
+          if (description != null && description.trim().isNotEmpty) ...[
+            const SizedBox(height: 14),
+            Text(
+              description,
+              style: const TextStyle(color: muted, fontSize: 14, height: 1.55),
+            ),
+          ],
+          if (nutrition != null) ...[
+            const SizedBox(height: 18),
+            const Eyebrow('INFORMASI GIZI PER PORSI'),
+            const SizedBox(height: 8),
+            NutritionBadges(nutrition: nutrition),
+          ],
+          if (ingredients.isNotEmpty) ...[
+            const SizedBox(height: 20),
+            const Eyebrow('BAHAN-BAHAN'),
+            const SizedBox(height: 10),
+            Container(
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: cream,
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: line),
+              ),
+              child: Column(
+                children: [
+                  for (var i = 0; i < ingredients.length; i++) ...[
+                    if (i > 0) const Divider(height: 14),
+                    Row(
+                      children: [
+                        const Icon(
+                          Icons.check_circle_outline_rounded,
+                          size: 17,
+                          color: teal,
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Text(
+                            ingredients[i]['ingredient_name']?.toString() ?? '',
+                            style: const TextStyle(
+                              fontWeight: FontWeight.w600,
+                              color: ink,
+                            ),
+                          ),
+                        ),
+                        Text(
+                          ingredients[i]['quantity']?.toString() ?? '',
+                          style: const TextStyle(
+                            color: muted,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ],
+          const SizedBox(height: 20),
+          const Eyebrow('CARA MEMASAK'),
+          const SizedBox(height: 10),
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: cream,
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: line),
+            ),
+            child: Text(
+              instructions,
+              style: const TextStyle(
+                color: ink,
+                fontSize: 14,
+                height: 1.65,
+              ),
+            ),
+          ),
+        ],
+      ),
     ),
   );
 }
