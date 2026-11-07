@@ -172,7 +172,9 @@ class PatientCarePlan {
         (raw as List? ?? const []).map((item) => item.toString()).toList();
 
     return PatientCarePlan(
-      id: map['id']?.toString() ?? DateTime.now().microsecondsSinceEpoch.toString(),
+      id:
+          map['id']?.toString() ??
+          DateTime.now().microsecondsSinceEpoch.toString(),
       patientName: map['patient_name'] as String? ?? '',
       healthCondition: map['health_condition'] is Map
           ? Map<String, dynamic>.from(map['health_condition'] as Map)
@@ -240,40 +242,29 @@ class SqliteCarePlanStore implements CarePlanStore {
       DatabaseTables.carePlans,
       orderBy: 'created_at DESC',
     );
-    return rows
-        .map((row) {
-          final decoded = jsonDecode(row['plan_json'] as String);
-          return PatientCarePlan.fromJson(
-            Map<String, dynamic>.from(decoded as Map),
-          );
-        })
-        .toList();
+    return rows.map((row) {
+      final decoded = jsonDecode(row['plan_json'] as String);
+      return PatientCarePlan.fromJson(
+        Map<String, dynamic>.from(decoded as Map),
+      );
+    }).toList();
   }
 
   @override
   Future<void> save(PatientCarePlan plan) async {
     final db = await _dbHelper.database;
-    await db.insert(
-      DatabaseTables.carePlans,
-      {
-        'id': plan.id,
-        'patient_name': plan.patientName,
-        'plan_json': jsonEncode(plan.toJson()),
-        'created_at': plan.createdAt.toIso8601String(),
-        'updated_at': DateTime.now().toIso8601String(),
-      },
-      conflictAlgorithm: ConflictAlgorithm.replace,
-    );
+    await db.insert(DatabaseTables.carePlans, {
+      'id': plan.id,
+      'patient_name': plan.patientName,
+      'plan_json': jsonEncode(plan.toJson()),
+      'created_at': plan.createdAt.toIso8601String(),
+      'updated_at': DateTime.now().toIso8601String(),
+    }, conflictAlgorithm: ConflictAlgorithm.replace);
   }
 
   @override
   Future<void> delete(String id) async {
     final db = await _dbHelper.database;
-    await db.delete(
-      DatabaseTables.carePlans,
-      where: 'id = ?',
-      whereArgs: [id],
-    );
+    await db.delete(DatabaseTables.carePlans, where: 'id = ?', whereArgs: [id]);
   }
 }
-
