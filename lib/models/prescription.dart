@@ -81,7 +81,22 @@ class Prescription {
     if (value == null) return null;
     if (value is DateTime) return value;
     if (value is String && value.isNotEmpty) {
-      return DateTime.tryParse(value);
+      final parsed = DateTime.tryParse(value);
+      if (parsed != null) return parsed;
+      final hmMatch = RegExp(r'^([01]?\d|2[0-3]):([0-5]\d)$').firstMatch(
+        value.trim(),
+      );
+      if (hmMatch != null) {
+        final now = DateTime.now();
+        return DateTime(
+          now.year,
+          now.month,
+          now.day,
+          int.parse(hmMatch.group(1)!),
+          int.parse(hmMatch.group(2)!),
+        );
+      }
+      return null;
     }
     if (value is int) {
       return DateTime.fromMillisecondsSinceEpoch(value);

@@ -22,7 +22,7 @@ enum ReminderStatus {
 class Reminder {
   Reminder({
     this.id,
-    required this.prescriptionId,
+    this.prescriptionId,
     required this.title,
     required this.scheduleAt,
     this.status = 'pending',
@@ -30,7 +30,7 @@ class Reminder {
   }) : createdAt = createdAt ?? DateTime.now();
 
   final int? id;
-  final int prescriptionId;
+  final int? prescriptionId;
   final String title;
   final DateTime scheduleAt;
   final String status;
@@ -70,7 +70,7 @@ class Reminder {
   factory Reminder.fromMap(Map<String, dynamic> map) {
     return Reminder(
       id: (map['id'] as num?)?.toInt(),
-      prescriptionId: (map['prescription_id'] as num).toInt(),
+      prescriptionId: (map['prescription_id'] as num?)?.toInt(),
       title: map['title'] as String? ?? '',
       scheduleAt: _parseDateTime(map['schedule_at']),
       status: map['status'] as String? ?? ReminderStatus.pending.value,

@@ -17,11 +17,23 @@ double? parseRupiah(String? input) {
   return double.tryParse(raw.replaceAll(',', '.'));
 }
 
+const double kMinimumDailyBudget = 10000.0;
+
 String? validateRupiah(String? input) {
   final value = parseRupiah(input);
-  return value != null && value.isFinite && value > 0
-      ? null
-      : 'Masukkan nominal budget lebih dari nol.';
+  if (value == null || !value.isFinite || value <= 0) {
+    return 'Masukkan nominal budget lebih dari nol.';
+  }
+  if (value < kMinimumDailyBudget) {
+    return 'Minimal budget harian adalah Rp 10.000.';
+  }
+  return null;
+}
+
+String? validateTime24h(String? input) {
+  final value = (input ?? '').trim();
+  final match = RegExp(r'^([01]\d|2[0-3]):([0-5]\d)$').firstMatch(value);
+  return match != null ? null : 'Gunakan format HH:MM (contoh 06:00).';
 }
 
 String? validatePositiveNumber(String? input) {
@@ -56,6 +68,11 @@ List<String> splitCsvItems(String input) => input
 String formatIsoDate(DateTime date) {
   String two(int v) => v.toString().padLeft(2, '0');
   return '${date.year}-${two(date.month)}-${two(date.day)}';
+}
+
+String formatTime24h(DateTime date) {
+  String two(int v) => v.toString().padLeft(2, '0');
+  return '${two(date.hour)}:${two(date.minute)}';
 }
 
 class CalendarDateField extends StatefulWidget {
@@ -123,6 +140,64 @@ class _CalendarDateFieldState extends State<CalendarDateField> {
         tooltip: 'Pilih tanggal',
         onPressed: _pickDate,
         icon: const Icon(Icons.calendar_month_outlined, color: teal),
+      ),
+    ),
+  );
+}
+
+class TimePickerField extends StatefulWidget {
+  const TimePickerField({
+    super.key,
+    required this.label,
+    required this.controller,
+    this.validator = validateTime24h,
+  });
+
+  final String label;
+  final TextEditingController controller;
+  final String? Function(String?)? validator;
+
+  @override
+  State<TimePickerField> createState() => _TimePickerFieldState();
+}
+
+class _TimePickerFieldState extends State<TimePickerField> {
+  Future<void> _pickTime() async {
+    final parts = widget.controller.text.trim().split(':');
+    final initial = parts.length == 2
+        ? TimeOfDay(
+            hour: int.tryParse(parts[0]) ?? 6,
+            minute: int.tryParse(parts[1]) ?? 0,
+          )
+        : const TimeOfDay(hour: 6, minute: 0);
+    final result = await showTimePicker(
+      context: context,
+      initialTime: initial,
+      builder: (context, child) => MediaQuery(
+        data: MediaQuery.of(context).copyWith(alwaysUse24HourFormat: true),
+        child: child!,
+      ),
+    );
+    if (result == null || !mounted) return;
+    final hh = result.hour.toString().padLeft(2, '0');
+    final mm = result.minute.toString().padLeft(2, '0');
+    setState(() {
+      widget.controller.text = '$hh:$mm';
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) => TextFormField(
+    controller: widget.controller,
+    readOnly: true,
+    validator: widget.validator,
+    onTap: _pickTime,
+    decoration: InputDecoration(
+      labelText: widget.label,
+      suffixIcon: IconButton(
+        tooltip: 'Pilih jam',
+        onPressed: _pickTime,
+        icon: const Icon(Icons.access_time_rounded, color: teal),
       ),
     ),
   );

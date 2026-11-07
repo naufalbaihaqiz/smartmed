@@ -3,7 +3,7 @@ class DatabaseTables {
   DatabaseTables._();
 
   static const String databaseName = 'smartmed_local.db';
-  static const int databaseVersion = 4;
+  static const int databaseVersion = 7;
 
   // Nama-nama tabel
   static const String healthCondition = 'health_condition';
@@ -79,6 +79,7 @@ class DatabaseTables {
       quantity INTEGER,
       notes TEXT,
       isAfterEat INTEGER NOT NULL DEFAULT 0 CHECK (isAfterEat IN (0, 1)),
+      dose_type TEXT,
       created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (prescription_id) REFERENCES $prescription (id)
         ON DELETE CASCADE
@@ -90,7 +91,7 @@ class DatabaseTables {
   static const String createRemindersTable = '''
     CREATE TABLE $reminders (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
-      prescription_id INTEGER NOT NULL,
+      prescription_id INTEGER,
       title TEXT NOT NULL,
       schedule_at TEXT NOT NULL,
       status TEXT NOT NULL DEFAULT 'pending',

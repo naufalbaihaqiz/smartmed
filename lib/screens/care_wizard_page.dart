@@ -4,7 +4,9 @@ import 'package:intl/intl.dart';
 import '../care_api.dart';
 import '../care_forms.dart';
 import '../models/care_plan.dart';
+import '../models/medication.dart';
 import '../palette.dart';
+import '../services/schedule_expander.dart';
 import '../widgets.dart';
 
 enum _WizardStep {
@@ -30,6 +32,7 @@ class _MedicationDraft {
   final TextEditingController frequency;
   final TextEditingController instruction;
   final TextEditingController notes;
+  String doseType = 'TABLET';
   bool isAfterEat = true;
 
   void dispose() {
@@ -43,9 +46,16 @@ class _MedicationDraft {
 }
 
 class CareWizardPage extends StatefulWidget {
-  const CareWizardPage({super.key, required this.api});
+  const CareWizardPage({
+    super.key,
+    required this.api,
+    this.store,
+    this.nowProvider,
+  });
 
   final CareApi api;
+  final CarePlanStore? store;
+  final DateTime Function()? nowProvider;
 
   @override
   State<CareWizardPage> createState() => _CareWizardPageState();
@@ -53,6 +63,8 @@ class CareWizardPage extends StatefulWidget {
 
 class _CareWizardPageState extends State<CareWizardPage> {
   final _scrollController = ScrollController();
+
+  DateTime _now() => (widget.nowProvider ?? DateTime.now)();
 
   // Form keys per step
   final _nameFormKey = GlobalKey<FormState>();
@@ -76,24 +88,24 @@ class _CareWizardPageState extends State<CareWizardPage> {
 
   // Step 3: Doctor's Prescription & Medications
   late final _prescriptionDateCtrl = TextEditingController(
-    text: formatIsoDate(DateTime.now()),
+    text: formatIsoDate(_now()),
   );
-  late final _prescriptionStartCtrl = TextEditingController(
-    text: formatIsoDate(DateTime.now()),
-  );
+  final _prescriptionStartCtrl = TextEditingController(text: '08:00');
   final _prescriptionNotesCtrl = TextEditingController();
   final List<_MedicationDraft> _medications = [_MedicationDraft()];
 
-  // Step 4: Allergies, Preferences & Budget
+  // Step 4: Allergies, Preferences, Budget & Routine
   final Set<String> _selectedAllergies = {};
   final _customAllergiesCtrl = TextEditingController();
   final Set<String> _selectedPreferences = {};
   final _customPreferencesCtrl = TextEditingController();
   final _budgetCtrl = TextEditingController();
+  final _wakeTimeCtrl = TextEditingController(text: '06:00');
+  final _sleepTimeCtrl = TextEditingController(text: '21:00');
   final _routineCtrl = TextEditingController();
 
-  // Step 5: API Generation State
-  int _inputVersion = 1;
+  // Step 5: API Generation State (dimulai dari 0 agar request pertama bernilai 1)
+  int _inputVersion = 0;
   bool _loadingMeals = false;
   bool _loadingSchedule = false;
   String? _apiError;
@@ -127,7 +139,7 @@ class _CareWizardPageState extends State<CareWizardPage> {
     'Tinggi protein',
   ];
 
-  static const _budgetPresets = [35000, 50000, 75000, 100000, 150000];
+  static const _budgetPresets = [20000, 35000, 50000, 75000, 100000];
 
   @override
   void dispose() {
@@ -148,6 +160,8 @@ class _CareWizardPageState extends State<CareWizardPage> {
     _customAllergiesCtrl.dispose();
     _customPreferencesCtrl.dispose();
     _budgetCtrl.dispose();
+    _wakeTimeCtrl.dispose();
+    _sleepTimeCtrl.dispose();
     _routineCtrl.dispose();
     super.dispose();
   }
@@ -213,7 +227,6 @@ class _CareWizardPageState extends State<CareWizardPage> {
     if (!_hasPrescription) return const [];
     return [
       {
-        'id': 1,
         'prescription_date': _prescriptionDateCtrl.text.trim(),
         'start_at': _prescriptionStartCtrl.text.trim(),
         'status': 'active',
@@ -223,13 +236,15 @@ class _CareWizardPageState extends State<CareWizardPage> {
         'medications': [
           for (var i = 0; i < _medications.length; i++)
             {
-              'id': i + 1,
-              'prescription_id': 1,
               'medicine_name': _medications[i].name.text.trim(),
               'dosage': _medications[i].dosage.text.trim(),
               'frequency': _medications[i].frequency.text.trim(),
-              'instruction': _medications[i].instruction.text.trim(),
-              'quantity': int.parse(_medications[i].quantity.text.trim()),
+              'instruction': _medications[i].instruction.text.trim().isEmpty
+                  ? null
+                  : _medications[i].instruction.text.trim(),
+              'quantity':
+                  int.tryParse(_medications[i].quantity.text.trim()) ?? 10,
+              'dose_type': _medications[i].doseType,
               'notes': _medications[i].notes.text.trim().isEmpty
                   ? null
                   : _medications[i].notes.text.trim(),
@@ -270,13 +285,14 @@ class _CareWizardPageState extends State<CareWizardPage> {
 
       if (!mounted || version != _inputVersion) return;
 
+      final isDraft = result.status == 'draft';
       setState(() {
-        _generatedMeals = result.meals;
+        _generatedMeals = isDraft ? result.meals : [];
         _aiMessages = result.messages;
-        if (_generatedMeals.isEmpty) {
+        if (!isDraft || _generatedMeals.isEmpty) {
           _apiError = result.messages.isNotEmpty
               ? result.messages.join('\n')
-              : 'Server belum mengembalikan rekomendasi makanan. Silakan sesuaikan budget atau preferensi lalu coba lagi.';
+              : 'Server belum mengembalikan rekomendasi makanan (pastikan budget minimal Rp 10.000). Silakan sesuaikan budget atau preferensi lalu coba lagi.';
         }
       });
     } on CareApiException catch (e) {
@@ -290,6 +306,90 @@ class _CareWizardPageState extends State<CareWizardPage> {
     }
   }
 
+  List<Json> _buildLocalTemplateReminders({
+    required List<Json> prescriptions,
+    required Map<String, dynamic> rutinitas,
+  }) {
+    final now = _now();
+    final dateStr = DateFormat('yyyy-MM-dd').format(now);
+    final wakeMinutes = parseMinutesOfDay(
+      rutinitas['jam_bangun'] as String?,
+      fallback: 6 * 60,
+    );
+    final sleepMinutes = parseMinutesOfDay(
+      rutinitas['jam_tidur'] as String?,
+      fallback: 21 * 60,
+    );
+    final maxDinner = (sleepMinutes - 120).clamp(17 * 60, 21 * 60);
+
+    final breakfastTime = (wakeMinutes + 60).clamp(6 * 60, 10 * 60);
+    final lunchTime = (12 * 60 + 30).clamp(breakfastTime + 180, 15 * 60);
+    final dinnerTime = maxDinner;
+
+    String formatHM(int m) {
+      final h = (m ~/ 60).toString().padLeft(2, '0');
+      final min = (m % 60).toString().padLeft(2, '0');
+      return '${dateStr}T$h:$min:00';
+    }
+
+    final reminders = <Json>[
+      {
+        'prescription_id': null,
+        'title': 'Waktu Sarapan',
+        'schedule_at': formatHM(breakfastTime),
+        'status': 'pending',
+        'reminder_items': <Json>[],
+      },
+      {
+        'prescription_id': null,
+        'title': 'Waktu Makan Siang',
+        'schedule_at': formatHM(lunchTime),
+        'status': 'pending',
+        'reminder_items': <Json>[],
+      },
+      {
+        'prescription_id': null,
+        'title': 'Waktu Makan Malam',
+        'schedule_at': formatHM(dinnerTime),
+        'status': 'pending',
+        'reminder_items': <Json>[],
+      },
+    ];
+
+    for (final p in prescriptions) {
+      final pId = (p['id'] as num?)?.toInt();
+      final meds = (p['medications'] as List? ?? const [])
+          .whereType<Map>()
+          .toList();
+      for (final m in meds) {
+        final medId = (m['id'] as num?)?.toInt();
+        final name = (m['medicine_name'] as String? ?? 'Obat').trim();
+        final isAfter = m['isAfterEat'] == true;
+        final freq = parseDailyFrequency(m['frequency'] as String?, fallback: 1);
+
+        final targetMealMinutes = freq == 1
+            ? [breakfastTime]
+            : (freq == 2
+                ? [breakfastTime, dinnerTime]
+                : [breakfastTime, lunchTime, dinnerTime]);
+
+        for (final tm in targetMealMinutes) {
+          final medMinutes = isAfter ? tm + 30 : tm - 5;
+          reminders.add({
+            'prescription_id': pId,
+            'title': 'Minum Obat: $name',
+            'schedule_at': formatHM(medMinutes),
+            'status': 'pending',
+            'reminder_items': [
+              if (medId != null) {'medication_id': medId},
+            ],
+          });
+        }
+      }
+    }
+    return reminders;
+  }
+
   Future<void> _generateScheduleAndFinish() async {
     if (_generatedMeals.isEmpty || _loadingSchedule) return;
 
@@ -299,38 +399,56 @@ class _CareWizardPageState extends State<CareWizardPage> {
     });
 
     final version = _inputVersion;
-    final prescriptions = _buildPrescriptionsPayload();
     final routineText = _routineCtrl.text.trim();
+    final rutinitas = <String, dynamic>{
+      'jam_bangun': _wakeTimeCtrl.text.trim(),
+      'jam_tidur': _sleepTimeCtrl.text.trim(),
+      if (routineText.isNotEmpty) 'preferensi_waktu_makan': routineText,
+    };
 
     try {
-      final result = await widget.api.generateSchedule({
-        'menu_disetujui': _generatedMeals,
-        'prescriptions': prescriptions,
-        'rutinitas': {
-          'waktu_makan_standar': 'Pagi 07:00, Siang 12:30, Malam 18:30',
-          if (routineText.isNotEmpty) 'notes': routineText,
-        },
-      }, version);
+      // Simpan/siapkan ID menu yang disetujui & resep obat sebelum membuat jadwal
+      final approvedMeals = widget.store != null
+          ? await widget.store!.persistApprovedMeals(_generatedMeals)
+          : assignMealIds(_generatedMeals);
+      final prescriptions = widget.store != null
+          ? await widget.store!.persistPrescriptions(
+              _buildPrescriptionsPayload(),
+            )
+          : assignPrescriptionIds(_buildPrescriptionsPayload());
+
+      List<Json> templateReminders = [];
+      List<String> scheduleMessages = [];
+
+      try {
+        final result = await widget.api.generateSchedule({
+          'menu_disetujui': approvedMeals,
+          'prescriptions': prescriptions,
+          'rutinitas': rutinitas,
+        }, version);
+        templateReminders = result.reminders;
+        scheduleMessages = result.messages;
+      } catch (_) {
+        scheduleMessages = [
+          'Jadwal makan dan minum obat disusun otomatis menggunakan jadwal lokal.',
+        ];
+      }
+
+      if (templateReminders.isEmpty) {
+        templateReminders = _buildLocalTemplateReminders(
+          prescriptions: prescriptions,
+          rutinitas: rutinitas,
+        );
+      }
 
       if (!mounted || version != _inputVersion) return;
 
-      if (result.reminders.isEmpty) {
-        setState(() {
-          _apiError = result.messages.isNotEmpty
-              ? result.messages.join('\n')
-              : 'Server belum berhasil menyusun jadwal. Silakan coba lagi.';
-        });
-        return;
-      }
-
-      final sortedReminders = result.reminders
-          .map<Json>((r) => {...r, 'status': 'pending'})
-          .toList()
-        ..sort(
-          (a, b) => DateTime.parse(
-            a['schedule_at'] as String,
-          ).compareTo(DateTime.parse(b['schedule_at'] as String)),
-        );
+      final sortedReminders = expandCareSchedule(
+        templateReminders: templateReminders,
+        prescriptions: prescriptions,
+        rutinitas: rutinitas,
+        baseDate: _now(),
+      );
 
       final allergies = _mergedList(
         _selectedAllergies,
@@ -342,23 +460,22 @@ class _CareWizardPageState extends State<CareWizardPage> {
       );
 
       final plan = PatientCarePlan(
-        id: DateTime.now().microsecondsSinceEpoch.toString(),
+        id: _now().microsecondsSinceEpoch.toString(),
         patientName: _patientNameCtrl.text.trim(),
         healthCondition: _buildHealthConditionPayload(),
         prescriptions: prescriptions,
         allergies: allergies,
         preferensi: preferences,
-        budget: parseRupiah(_budgetCtrl.text) ?? 50000.0,
+        budget: parseRupiah(_budgetCtrl.text) ?? 20000.0,
         routineNotes: routineText,
-        meals: _generatedMeals,
+        rutinitas: rutinitas,
+        meals: approvedMeals,
         reminders: sortedReminders,
-        aiNotes: [..._aiMessages, ...result.messages],
+        aiNotes: [..._aiMessages, ...scheduleMessages],
+        createdAt: _now(),
       );
 
       Navigator.pop(context, plan);
-    } on CareApiException catch (e) {
-      if (!mounted) return;
-      setState(() => _apiError = e.message);
     } catch (e) {
       if (!mounted) return;
       setState(() => _apiError = 'Gagal membuat jadwal: $e');
@@ -711,6 +828,7 @@ class _CareWizardPageState extends State<CareWizardPage> {
                 const Eyebrow('INFORMASI RESEP'),
                 const SizedBox(height: 12),
                 Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Expanded(
                       child: CalendarDateField(
@@ -720,12 +838,50 @@ class _CareWizardPageState extends State<CareWizardPage> {
                     ),
                     const SizedBox(width: 10),
                     Expanded(
-                      child: CalendarDateField(
-                        label: 'Mulai minum',
+                      child: TimePickerField(
+                        label: 'Jam mulai minum',
                         controller: _prescriptionStartCtrl,
                       ),
                     ),
                   ],
+                ),
+                const SizedBox(height: 10),
+                Wrap(
+                  spacing: 6,
+                  runSpacing: 6,
+                  children: [
+                    ActionChip(
+                      visualDensity: VisualDensity.compact,
+                      label: const Text(
+                        'Sekarang',
+                        style: TextStyle(fontSize: 11.5),
+                      ),
+                      backgroundColor: slate,
+                      onPressed: () => setState(() {
+                        _prescriptionStartCtrl.text = formatTime24h(_now());
+                      }),
+                    ),
+                    for (final preset in ['08:00', '13:00', '19:00'])
+                      ActionChip(
+                        visualDensity: VisualDensity.compact,
+                        label: Text(
+                          preset,
+                          style: const TextStyle(fontSize: 11.5),
+                        ),
+                        backgroundColor:
+                            _prescriptionStartCtrl.text.trim() == preset
+                            ? paleTeal
+                            : slate,
+                        onPressed: () => setState(() {
+                          _prescriptionStartCtrl.text = preset;
+                        }),
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                const Text(
+                  'Obat mulai diminum hari ini pada jam tersebut, lalu disesuaikan otomatis pada hari esoknya sampai stok obat habis.',
+                  style: TextStyle(fontSize: 12, color: muted, height: 1.4),
                 ),
                 const SizedBox(height: 12),
                 TextFormField(
@@ -794,6 +950,31 @@ class _CareWizardPageState extends State<CareWizardPage> {
             ),
           ),
           const SizedBox(height: 12),
+          DropdownButtonFormField<String>(
+            initialValue: med.doseType,
+            decoration: const InputDecoration(
+              labelText: 'Bentuk & Satuan Sediaan (Dose Type)',
+              prefixIcon: Icon(Icons.category_outlined),
+            ),
+            isExpanded: true,
+            items: [
+              for (final opt in doseTypeOptions)
+                DropdownMenuItem<String>(
+                  value: opt.code,
+                  child: Text(
+                    opt.name,
+                    style: const TextStyle(fontSize: 13),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+            ],
+            onChanged: (val) {
+              if (val != null) {
+                setState(() => med.doseType = val);
+              }
+            },
+          ),
+          const SizedBox(height: 12),
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -801,10 +982,11 @@ class _CareWizardPageState extends State<CareWizardPage> {
                 flex: 3,
                 child: TextFormField(
                   controller: med.dosage,
-                  validator: (v) => validateRequired(v, 'Dosis wajib diisi.'),
-                  decoration: const InputDecoration(
-                    labelText: 'Dosis',
-                    hintText: 'Contoh: 5 mg / 1 tab',
+                  validator: (v) => validateRequired(v, 'Takaran wajib diisi.'),
+                  decoration: InputDecoration(
+                    labelText: 'Takaran',
+                    hintText: getDoseTypeOption(med.doseType).doseHint,
+                    helperText: 'Satuan: ${getDoseTypeOption(med.doseType).doseUnit}',
                   ),
                 ),
               ),
@@ -815,9 +997,11 @@ class _CareWizardPageState extends State<CareWizardPage> {
                   controller: med.quantity,
                   keyboardType: TextInputType.number,
                   validator: validatePositiveInt,
-                  decoration: const InputDecoration(
+                  decoration: InputDecoration(
                     labelText: 'Jumlah',
-                    hintText: '10',
+                    hintText: getDoseTypeOption(med.doseType).quantityHint,
+                    suffixText: getDoseTypeOption(med.doseType).quantityUnit,
+                    helperText: 'Satuan: ${getDoseTypeOption(med.doseType).quantityUnit}',
                   ),
                 ),
               ),
@@ -851,10 +1035,10 @@ class _CareWizardPageState extends State<CareWizardPage> {
           const SizedBox(height: 12),
           TextFormField(
             controller: med.instruction,
-            validator: (v) => validateRequired(v, 'Instruksi wajib diisi.'),
             decoration: const InputDecoration(
-              labelText: 'Instruksi waktu minum',
-              hintText: 'Contoh: Pagi pukul 08:00 & Malam pukul 20:00',
+              labelText: 'Instruksi minum obat',
+              hintText: 'Contoh:Larutkan obat (Opsional)',
+              helperText: 'Opsional (boleh dikosongkan)',
             ),
           ),
           const SizedBox(height: 12),
@@ -1010,6 +1194,11 @@ class _CareWizardPageState extends State<CareWizardPage> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 const Eyebrow('BUDGET MAKANAN HARIAN'),
+                const SizedBox(height: 4),
+                const Text(
+                  'Anggaran belanja 1 hari penuh (3 kali makan). Minimal Rp 10.000.',
+                  style: TextStyle(fontSize: 12.5, color: muted),
+                ),
                 const SizedBox(height: 10),
                 Wrap(
                   spacing: 7,
@@ -1038,7 +1227,7 @@ class _CareWizardPageState extends State<CareWizardPage> {
                   onChanged: (_) => setState(() {}),
                   decoration: const InputDecoration(
                     labelText: 'Budget makanan (Rupiah)',
-                    hintText: 'Contoh: 75000',
+                    hintText: 'Minimal 10000 (contoh: 50000)',
                     prefixText: 'Rp ',
                     prefixIcon: Icon(
                       Icons.account_balance_wallet_outlined,
@@ -1046,12 +1235,45 @@ class _CareWizardPageState extends State<CareWizardPage> {
                     ),
                   ),
                 ),
-                const SizedBox(height: 14),
+              ],
+            ),
+          ),
+          const SizedBox(height: 16),
+          Surface(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Eyebrow('RUTINITAS HARIAN PASIEN'),
+                const SizedBox(height: 4),
+                const Text(
+                  'Digunakan AI agar jadwal makan dan obat tidak bentrok dengan jam tidur.',
+                  style: TextStyle(fontSize: 12.5, color: muted),
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(
+                      child: TimePickerField(
+                        label: 'Jam bangun',
+                        controller: _wakeTimeCtrl,
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: TimePickerField(
+                        label: 'Jam tidur',
+                        controller: _sleepTimeCtrl,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
                 TextFormField(
                   controller: _routineCtrl,
                   decoration: const InputDecoration(
-                    labelText: 'Catatan jam makan / rutinitas (opsional)',
-                    hintText: 'Contoh: Sarapan pukul 07:00, makan siang 12:30',
+                    labelText: 'Preferensi waktu makan (opsional)',
+                    hintText: 'Contoh: Sarapan 07:00, Siang 12:30, Malam 18:30',
                     prefixIcon: Icon(Icons.schedule_rounded, color: teal),
                   ),
                 ),
