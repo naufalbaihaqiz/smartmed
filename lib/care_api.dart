@@ -22,7 +22,12 @@ class CareApi {
 
   Future<({String status, List<Json> meals, List<String> messages})>
   generateMeals(Json input, int version) async {
-    final response = await _post('api/meal-plans/generate', input, version);
+    // Keep a fallback budget for older saved profiles; ingredient stock is no
+    // longer part of the current backend request schema.
+    final response = await _post('api/meal-plans/generate', {
+      ...input,
+      'budget': input['budget'] ?? 1000000000.0,
+    }, version);
     final meals = _objects(response['meals']);
     for (final meal in meals) {
       _require<String>(meal, 'recipe_name');
@@ -67,12 +72,15 @@ class CareApi {
     for (final reminder in reminders) {
       _require<String>(reminder, 'title');
       _require<String>(reminder, 'status');
-      final scheduleAt = _require<String>(reminder, 'schedule_at');
-      if (!scheduleAt.contains('T') || DateTime.tryParse(scheduleAt) == null) {
+      final scheduleAt = _scheduleDateTime(
+        _require<String>(reminder, 'schedule_at'),
+      );
+      if (scheduleAt == null) {
         throw const CareApiException(
           'Waktu pengingat dari server tidak valid.',
         );
       }
+      reminder['schedule_at'] = scheduleAt.toIso8601String();
       for (final item in _objects(reminder['reminder_items'] ?? [])) {
         final medicationId = item['medication_id'];
         if (medicationId != null && medicationId is! int) {
@@ -126,11 +134,24 @@ class CareApi {
               'input_version': version,
             }),
           )
-          .timeout(const Duration(seconds: 30));
+          .timeout(const Duration(seconds: 90));
       if (response.statusCode < 200 || response.statusCode >= 300) {
         if (response.statusCode == 422) {
+          final missingFields = _missingFields(response.body);
+          if (missingFields.isNotEmpty) {
+            throw CareApiException(
+              'Data wajib belum terkirim: ${missingFields.join(', ')}.',
+            );
+          }
           throw const CareApiException(
             'Server menolak format data. Periksa input dan versi skema API.',
+          );
+        }
+        if (response.statusCode >= 500) {
+          final detail = _serverErrorDetail(response.body);
+          throw CareApiException(
+            'Layanan AI sedang bermasalah (HTTP ${response.statusCode})'
+            '${detail == null ? '' : ': $detail'}',
           );
         }
         throw CareApiException(
@@ -149,6 +170,61 @@ class CareApi {
         'Respons server tidak sesuai skema TemanRawat.',
       );
     }
+  }
+
+  static List<String> _missingFields(String body) {
+    try {
+      final decoded = jsonDecode(body);
+      if (decoded is! Map || decoded['detail'] is! List) return const [];
+      return (decoded['detail'] as List)
+          .whereType<Map>()
+          .where((item) => item['type'] == 'missing')
+          .map((item) {
+            final location = item['loc'];
+            if (location is List && location.isNotEmpty) {
+              return location.skip(1).join('.');
+            }
+            return '';
+          })
+          .where((field) => field.isNotEmpty)
+          .toSet()
+          .toList();
+    } on FormatException {
+      return const [];
+    }
+  }
+
+  static String? _serverErrorDetail(String body) {
+    try {
+      final decoded = jsonDecode(body);
+      if (decoded is! Map || decoded['detail'] is! String) return null;
+      final detail = (decoded['detail'] as String).trim();
+      if (detail.isEmpty) return null;
+      return detail.length > 240 ? '${detail.substring(0, 240)}…' : detail;
+    } on FormatException {
+      return null;
+    }
+  }
+
+  static DateTime? _scheduleDateTime(String value) {
+    final parsed = DateTime.tryParse(value);
+    if (parsed != null) return parsed;
+
+    // The live backend returns daily times such as "07:30". Attach today's
+    // local date so the agenda can sort and display them as DateTimes.
+    final match = RegExp(r'^(0?\d|1\d|2[0-3]):([0-5]\d)(?::([0-5]\d))?$')
+        .firstMatch(value);
+    if (match == null) return null;
+
+    final now = DateTime.now();
+    return DateTime(
+      now.year,
+      now.month,
+      now.day,
+      int.parse(match.group(1)!),
+      int.parse(match.group(2)!),
+      int.parse(match.group(3) ?? '0'),
+    );
   }
 
   static T _require<T>(Json value, String key) {

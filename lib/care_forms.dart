@@ -71,6 +71,93 @@ class CareFormField extends StatelessWidget {
   );
 }
 
+class CalendarDateField extends StatefulWidget {
+  const CalendarDateField(
+    this.label, {
+    super.key,
+    this.initialValue,
+    this.validator,
+    required this.onSaved,
+  });
+
+  final String label;
+  final String? initialValue;
+  final String? Function(String?)? validator;
+  final void Function(String) onSaved;
+
+  @override
+  State<CalendarDateField> createState() => _CalendarDateFieldState();
+}
+
+class _CalendarDateFieldState extends State<CalendarDateField> {
+  late final controller = TextEditingController(text: widget.initialValue);
+
+  @override
+  void dispose() {
+    controller.dispose();
+    super.dispose();
+  }
+
+  Future<void> _pickDate() async {
+    final initialDate = DateTime.tryParse(controller.text) ?? DateTime.now();
+    var selectedDate = initialDate;
+    final result = await showDialog<DateTime>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(widget.label),
+        content: SizedBox(
+          width: 320,
+          height: 360,
+          child: CalendarDatePicker(
+            initialDate: initialDate,
+            firstDate: DateTime(1900),
+            lastDate: DateTime(2100),
+            onDateChanged: (date) => selectedDate = date,
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Batal'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, selectedDate),
+            child: const Text('Pilih tanggal'),
+          ),
+        ],
+      ),
+    );
+    if (result == null || !mounted) return;
+    String two(int value) => value.toString().padLeft(2, '0');
+    setState(() {
+      controller.text =
+          '${result.year}-${two(result.month)}-${two(result.day)}';
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.only(bottom: 14),
+    child: TextFormField(
+      controller: controller,
+      readOnly: true,
+      showCursor: false,
+      enableInteractiveSelection: false,
+      validator: widget.validator,
+      onTap: _pickDate,
+      decoration: InputDecoration(
+        labelText: widget.label,
+        suffixIcon: IconButton(
+          tooltip: 'Pilih tanggal dari kalender',
+          onPressed: _pickDate,
+          icon: const Icon(Icons.calendar_month_outlined),
+        ),
+      ),
+      onSaved: (value) => widget.onSaved((value ?? '').trim()),
+    ),
+  );
+}
+
 class MealInputForm extends StatefulWidget {
   const MealInputForm({
     super.key,
@@ -168,11 +255,6 @@ class _MealInputFormState extends State<MealInputForm> {
             keyboard: const TextInputType.numberWithOptions(decimal: true),
           ),
           field(
-            'Stok bahan, pisahkan dengan koma',
-            'stok_bahan',
-            initial: (input?['stok_bahan'] as List<String>?)?.join(', '),
-          ),
-          field(
             'Preferensi, pisahkan dengan koma',
             'preferensi',
             initial: (input?['preferensi'] as List<String>?)?.join(', '),
@@ -195,7 +277,6 @@ class _MealInputFormState extends State<MealInputForm> {
                     .map<Json>((type) => {'type': type})
                     .toList(),
                 'budget': _decimal(values['budget']),
-                'stok_bahan': _items(values['stok_bahan']!),
                 'preferensi': _items(values['preferensi']!),
               });
             },
@@ -231,7 +312,7 @@ class _PrescriptionFormState extends State<PrescriptionForm> {
           ('prescription_date', 'Tanggal resep (YYYY-MM-DD)'),
           ('start_at', 'Tanggal mulai (YYYY-MM-DD)'),
         ])
-          CareFormField(
+          CalendarDateField(
             label,
             validator: _date,
             onSaved: (value) => values[key] = value,

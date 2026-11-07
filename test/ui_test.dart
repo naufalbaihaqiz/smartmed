@@ -27,6 +27,21 @@ Future<void> enterField(WidgetTester tester, String label, String value) async {
   await tester.pumpAndSettle();
 }
 
+Future<void> chooseDate(WidgetTester tester, String label, String value) async {
+  final field = find.widgetWithText(TextFormField, label);
+  await tester.ensureVisible(field);
+  await tester.tap(field);
+  await tester.pumpAndSettle();
+  final date = DateTime.parse(value);
+  final day = find.descendant(
+    of: find.byType(CalendarDatePicker),
+    matching: find.text('${date.day}'),
+  );
+  await tester.tap(day);
+  await tester.pumpAndSettle();
+  await tapText(tester, 'Pilih tanggal');
+}
+
 void usePhone(WidgetTester tester) {
   tester.view.physicalSize = const Size(360, 800);
   tester.view.devicePixelRatio = 1;
@@ -158,6 +173,7 @@ void main() {
           if (request.url.path == '/api/meal-plans/generate') {
             expect(payload['health_condition'], {
               'condition_name': 'Kondisi yang diinput',
+              'name': 'Pasien Uji',
               'diagnosis': null,
               'notes': null,
               'age': 58,
@@ -169,7 +185,7 @@ void main() {
               {'type': 'kacang'},
             ]);
             expect(payload['budget'], 75000);
-            expect(payload['stok_bahan'], ['beras']);
+            expect(payload.containsKey('stok_bahan'), isFalse);
             expect(payload['preferensi'], ['makanan lembut']);
             return http.Response(
               jsonEncode({
@@ -227,15 +243,14 @@ void main() {
         ('Tinggi (cm)', '160'),
         ('Alergi, pisahkan dengan koma', 'kacang'),
         ('Budget belanja (rupiah)', '75000'),
-        ('Stok bahan, pisahkan dengan koma', 'beras'),
         ('Preferensi, pisahkan dengan koma', 'makanan lembut'),
       ]) {
         await enterField(tester, label, value);
       }
       await tapText(tester, 'Simpan profil perawatan');
       await tapText(tester, 'Tambah resep');
-      await enterField(tester, 'Tanggal resep (YYYY-MM-DD)', '2026-11-07');
-      await enterField(tester, 'Tanggal mulai (YYYY-MM-DD)', '2026-11-08');
+      await chooseDate(tester, 'Tanggal resep (YYYY-MM-DD)', '2026-11-07');
+      await chooseDate(tester, 'Tanggal mulai (YYYY-MM-DD)', '2026-11-08');
       await tapText(tester, 'Tambah obat');
       for (final (label, value) in [
         ('Nama obat', 'Nama sesuai input uji'),

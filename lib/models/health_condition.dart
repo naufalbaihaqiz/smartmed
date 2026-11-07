@@ -2,6 +2,7 @@
 class HealthCondition {
   HealthCondition({
     this.id,
+    required this.name,
     required this.conditionName,
     this.diagnosis,
     this.notes,
@@ -13,6 +14,7 @@ class HealthCondition {
   }) : createdAt = createdAt ?? DateTime.now();
 
   final int? id;
+  final String name;
   final String conditionName;
   final String? diagnosis;
   final String? notes;
@@ -24,6 +26,7 @@ class HealthCondition {
 
   HealthCondition copyWith({
     int? id,
+    String? name,
     String? conditionName,
     String? diagnosis,
     String? notes,
@@ -35,6 +38,7 @@ class HealthCondition {
   }) {
     return HealthCondition(
       id: id ?? this.id,
+      name: name ?? this.name,
       conditionName: conditionName ?? this.conditionName,
       diagnosis: diagnosis ?? this.diagnosis,
       notes: notes ?? this.notes,
@@ -49,6 +53,7 @@ class HealthCondition {
   Map<String, dynamic> toMap() {
     return <String, dynamic>{
       if (id != null) 'id': id,
+      'name': name,
       'condition_name': conditionName,
       'diagnosis': diagnosis,
       'notes': notes,
@@ -65,6 +70,7 @@ class HealthCondition {
         map['isTherePrescription'] ?? map['is_there_prescription'];
     return HealthCondition(
       id: (map['id'] as num?)?.toInt(),
+      name: map['name'] as String? ?? '',
       conditionName: map['condition_name'] as String? ?? '',
       diagnosis: map['diagnosis'] as String?,
       notes: map['notes'] as String?,

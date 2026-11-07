@@ -79,112 +79,129 @@ class WelcomePage extends StatelessWidget {
     backgroundColor: shellBackground,
     body: SafeArea(
       child: Center(
-        child: ConstrainedBox(
-          constraints: BoxConstraints(
-            maxWidth: 430,
-            maxHeight: MediaQuery.sizeOf(context).width >= 520
-                ? 760
-                : double.infinity,
-          ),
-          child: LayoutBuilder(
-            builder: (context, constraints) => DecoratedBox(
-              decoration: const BoxDecoration(
-                color: cream,
-                gradient: RadialGradient(
-                  center: Alignment(.72, -.50),
-                  radius: .55,
-                  colors: [Color(0xFFF3E8E4), cream],
+        child: SizedBox(
+          width: MediaQuery.sizeOf(context).width < 430
+              ? MediaQuery.sizeOf(context).width
+              : 430,
+          child: ConstrainedBox(
+            constraints: BoxConstraints(
+              maxHeight: MediaQuery.sizeOf(context).width >= 520
+                  ? 760
+                  : double.infinity,
+            ),
+            child: LayoutBuilder(
+              builder: (context, constraints) => DecoratedBox(
+                decoration: const BoxDecoration(
+                  color: cream,
+                  gradient: RadialGradient(
+                    center: Alignment(.72, -.50),
+                    radius: .55,
+                    colors: [Color(0xFFF3E8E4), cream],
+                  ),
                 ),
-              ),
-              child: SingleChildScrollView(
-                child: ConstrainedBox(
-                  constraints: BoxConstraints(minHeight: constraints.maxHeight),
-                  child: IntrinsicHeight(
-                    child: Padding(
-                      padding: const EdgeInsets.fromLTRB(20, 28, 20, 16),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          const Brand(),
-                          const CareArtwork(),
-                          const SizedBox(height: 8),
-                          const Text(
-                            'TEMAN UNTUK SETIAP LANGKAH PERAWATAN',
-                            style: _eyebrow,
-                          ),
-                          const SizedBox(height: 10),
-                          Text.rich(
-                            const TextSpan(
-                              children: [
-                                TextSpan(
-                                  text: 'Bantu orang tersayang menjalani hari dengan ',
-                                ),
-                                TextSpan(
-                                  text: 'lebih teratur',
-                                  style: TextStyle(color: red),
-                                ),
-                              ],
+                child: SingleChildScrollView(
+                  child: ConstrainedBox(
+                    constraints: BoxConstraints(
+                      minHeight: constraints.maxHeight,
+                    ),
+                    child: IntrinsicHeight(
+                      child: Padding(
+                        padding: const EdgeInsets.fromLTRB(20, 28, 20, 16),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            const Brand(),
+                            const CareArtwork(),
+                            const SizedBox(height: 8),
+                            const Text(
+                              'TEMAN UNTUK SETIAP LANGKAH PERAWATAN',
+                              style: _eyebrow,
                             ),
-                            style: TextStyle(
-                              fontSize: constraints.maxWidth >= 400 ? 40 : 35,
-                              height: 1.07,
-                              letterSpacing: -1.45,
-                              fontWeight: FontWeight.w800,
-                              color: ink,
-                            ),
-                          ),
-                          const SizedBox(height: 14),
-                          const Text(
-                            'Susun rencana makan, tinjau jadwal, dan catat kegiatan perawatan keluarga dalam satu tempat.',
-                            style: TextStyle(
-                              color: muted,
-                              fontSize: 15,
-                              height: 1.6,
-                            ),
-                          ),
-                          const Spacer(),
-                          const SizedBox(height: 24),
-                          FilledButton(
-                            onPressed: () => Navigator.push<void>(
-                              context,
-                              MaterialPageRoute(
-                                builder: (_) =>
-                                    _CareSetupPage(onStart: onStart),
+                            const SizedBox(height: 10),
+                            Text.rich(
+                              const TextSpan(
+                                children: [
+                                  TextSpan(
+                                    text: 'Bantu orang\ntersayang menjalani\nhari dengan ',
+                                  ),
+                                  TextSpan(
+                                    text: 'lebih teratur',
+                                    style: TextStyle(
+                                      color: red,
+                                      fontFamily: 'serif',
+                                      fontStyle: FontStyle.italic,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              style: TextStyle(
+                                fontSize: constraints.maxWidth >= 400 ? 38 : 35,
+                                height: 1.07,
+                                letterSpacing: -1.45,
+                                fontWeight: FontWeight.w800,
+                                color: ink,
                               ),
                             ),
-                            child: const Row(
+                            const SizedBox(height: 14),
+                            const Text(
+                              'Susun menu, jadwal, dan catatan harian keluarga dalam satu tempat yang sederhana.',
+                              style: TextStyle(
+                                color: muted,
+                                fontSize: 15,
+                                height: 1.6,
+                              ),
+                            ),
+                            const Spacer(),
+                            const SizedBox(height: 24),
+                            FilledButton(
+                              onPressed: () => Navigator.push<void>(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (_) =>
+                                      _CareSetupPage(onStart: onStart),
+                                ),
+                              ),
+                              child: const Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Flexible(child: Text('Mulai Mendampingi')),
+                                  SizedBox(width: 10),
+                                  Icon(Icons.arrow_forward, size: 18),
+                                ],
+                              ),
+                            ),
+                            if (onDemo != null)
+                              TextButton(
+                                onPressed: () => _chooseDemo(context),
+                                child: const Text(
+                                  'Coba Demo',
+                                  style: TextStyle(fontWeight: FontWeight.w700),
+                                ),
+                              ),
+                            const SizedBox(height: 10),
+                            const Row(
                               mainAxisAlignment: MainAxisAlignment.center,
                               children: [
-                                Flexible(child: Text('Mulai Mendampingi')),
-                                SizedBox(width: 10),
-                                Icon(Icons.arrow_forward, size: 18),
+                                Icon(
+                                  Icons.favorite_border_rounded,
+                                  size: 14,
+                                  color: red,
+                                ),
+                                SizedBox(width: 5),
+                                Flexible(
+                                  child: Text(
+                                    'Dibuat untuk pendamping, digunakan dari HP Anda',
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      color: muted,
+                                    ),
+                                  ),
+                                ),
                               ],
                             ),
-                          ),
-                          if (onDemo != null)
-                            TextButton(
-                              onPressed: () => _chooseDemo(context),
-                              child: const Text('Coba Demo'),
-                            ),
-                          const SizedBox(height: 10),
-                          const Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Icon(
-                                Icons.favorite_border_rounded,
-                                size: 14,
-                                color: red,
-                              ),
-                              SizedBox(width: 5),
-                              Flexible(
-                                child: Text(
-                                  'Dibuat untuk pendamping keluarga',
-                                  style: TextStyle(fontSize: 11, color: muted),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ],
+                          ],
+                        ),
                       ),
                     ),
                   ),

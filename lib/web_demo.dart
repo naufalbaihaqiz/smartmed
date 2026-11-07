@@ -16,6 +16,7 @@ class WebDemo {
   Json get mealInput => {
     'health_condition': <String, dynamic>{
       'condition_name': 'Pemulihan setelah konsultasi',
+      'name': patient,
       'notes': 'Skenario fiktif untuk pratinjau.',
       'age': withPrescription ? 65 : 68,
       'weight': 54.0,
@@ -26,7 +27,6 @@ class WebDemo {
       {'type': 'Kacang'},
     ],
     'budget': 45000.0,
-    'stok_bahan': ['Beras', 'Wortel', 'Tahu'],
     'preferensi': ['Makanan rumahan', 'Tekstur lembut'],
   };
 

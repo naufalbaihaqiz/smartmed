@@ -3,7 +3,7 @@ class DatabaseTables {
   DatabaseTables._();
 
   static const String databaseName = 'smartmed_local.db';
-  static const int databaseVersion = 2;
+  static const int databaseVersion = 3;
 
   // Nama-nama tabel
   static const String healthCondition = 'health_condition';
@@ -33,6 +33,7 @@ class DatabaseTables {
   static const String createHealthConditionTable = '''
     CREATE TABLE $healthCondition (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name VARCHAR(255) NOT NULL DEFAULT '',
       condition_name TEXT NOT NULL,
       diagnosis TEXT,
       notes TEXT,

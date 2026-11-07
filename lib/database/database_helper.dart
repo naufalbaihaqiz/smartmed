@@ -94,6 +94,12 @@ class DatabaseHelper {
         'ADD COLUMN isTherePrescription INTEGER NOT NULL DEFAULT 0 CHECK (isTherePrescription IN (0, 1))',
       );
     }
+    if (oldVersion < 3) {
+      await db.execute(
+        'ALTER TABLE ${DatabaseTables.healthCondition} '
+        "ADD COLUMN name VARCHAR(255) NOT NULL DEFAULT ''",
+      );
+    }
   }
 
   /// Menutup koneksi database yang sedang aktif.

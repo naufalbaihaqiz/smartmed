@@ -42,6 +42,9 @@ void main() {
     for (final table in DatabaseTables.allTables) {
       final columns = await db.rawQuery('PRAGMA table_info($table)');
       final columnNames = columns.map((c) => c['name'] as String).toList();
+      if (table == DatabaseTables.healthCondition) {
+        expect(columnNames, contains('name'));
+      }
       expect(
         columnNames,
         contains('id'),
@@ -58,6 +61,7 @@ void main() {
   test('CRUD health_condition dan allergies berjalan dengan benar', () async {
     final conditionId = await healthRepo.insert(
       HealthCondition(
+        name: 'Ibu Sari',
         conditionName: 'Hipertensi',
         diagnosis: 'Tekanan darah tinggi tingkat 1',
         notes: 'Kurangi konsumsi garam',
@@ -70,7 +74,8 @@ void main() {
 
     final condition = await healthRepo.getById(conditionId);
     expect(condition, isNotNull);
-    expect(condition!.conditionName, 'Hipertensi');
+    expect(condition!.name, 'Ibu Sari');
+    expect(condition.conditionName, 'Hipertensi');
     expect(condition.weight, 68.50);
     expect(condition.height, 170.25);
     expect(condition.isTherePrescription, isTrue);

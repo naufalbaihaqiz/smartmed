@@ -368,6 +368,7 @@ class _HomeShellState extends State<HomeShell> {
         ...input,
         'health_condition': {
           ...health,
+          'name': widget.patient,
           'isTherePrescription': prescriptions.isNotEmpty,
         },
       }, requestVersion);
@@ -377,7 +378,9 @@ class _HomeShellState extends State<HomeShell> {
         scheduleDraft = [];
         message = [
           ...result.messages,
-          if (meals.isEmpty) 'Belum ada draf menu yang bisa ditinjau.',
+          if (meals.isEmpty && result.messages.isEmpty) 'Server belum mengembalikan menu. Coba ulang atau sesuaikan profil dan budget.',
+          if (meals.isEmpty && result.messages.isNotEmpty)
+            'Belum ada draf menu yang bisa ditinjau.',
         ].join('\n');
       });
     });
