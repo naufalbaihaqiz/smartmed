@@ -1,10 +1,16 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 
+import 'care_api.dart';
+import 'care_forms.dart';
 import 'database/database_helper.dart';
-import 'demo_data.dart';
+import 'palette.dart';
 import 'widgets.dart';
 import 'welcome.dart';
+import 'web_demo.dart';
+
+const webDemoEnabled = kIsWeb && bool.fromEnvironment('TEMANRAWAT_WEB_DEMO');
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -18,13 +24,16 @@ Future<void> main() async {
 }
 
 class TemanRawatApp extends StatefulWidget {
-  const TemanRawatApp({super.key});
+  const TemanRawatApp({super.key, this.api});
+
+  final CareApi? api;
   @override
   State<TemanRawatApp> createState() => _TemanRawatAppState();
 }
 
 class _TemanRawatAppState extends State<TemanRawatApp> {
-  ({String caregiver, String patient, bool hasPrescription})? profile;
+  ({String caregiver, String patient})? profile;
+  WebDemo? demo;
 
   @override
   Widget build(BuildContext context) => MaterialApp(
@@ -37,8 +46,8 @@ class _TemanRawatAppState extends State<TemanRawatApp> {
       colorScheme: ColorScheme.fromSeed(seedColor: teal, surface: paper),
       textTheme: const TextTheme(
         headlineLarge: TextStyle(
-          fontSize: 34,
-          fontWeight: FontWeight.w700,
+          fontSize: 32,
+          fontWeight: FontWeight.w800,
           color: ink,
           letterSpacing: -1.2,
         ),
@@ -53,21 +62,46 @@ class _TemanRawatAppState extends State<TemanRawatApp> {
           fontWeight: FontWeight.w700,
           color: ink,
         ),
-        bodyMedium: TextStyle(fontSize: 14, color: ink, height: 1.5),
+        bodyMedium: TextStyle(fontSize: 14, color: ink, height: 1.55),
       ),
       filledButtonTheme: FilledButtonThemeData(
         style: FilledButton.styleFrom(
           backgroundColor: teal,
           foregroundColor: Colors.white,
-          padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 20),
+          minimumSize: const Size(0, 50),
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+          textStyle: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14),
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(14),
+            borderRadius: BorderRadius.circular(10),
           ),
+        ),
+      ),
+      outlinedButtonTheme: OutlinedButtonThemeData(
+        style: OutlinedButton.styleFrom(
+          foregroundColor: teal,
+          minimumSize: const Size(0, 48),
+          side: const BorderSide(color: line),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(10),
+          ),
+          textStyle: const TextStyle(fontWeight: FontWeight.w700),
         ),
       ),
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
-        fillColor: cream,
+        fillColor: paper,
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 16,
+          vertical: 16,
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(10),
+          borderSide: const BorderSide(color: line),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(10),
+          borderSide: const BorderSide(color: teal, width: 1.5),
+        ),
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12),
           borderSide: const BorderSide(color: line),
@@ -75,22 +109,39 @@ class _TemanRawatAppState extends State<TemanRawatApp> {
       ),
       dividerTheme: const DividerThemeData(color: line, thickness: 1),
     ),
-    home: profile != null
-        ? HomeShell(
-            caregiver: profile!.caregiver,
-            patient: profile!.patient,
-            hasPrescription: profile!.hasPrescription,
-          )
-        : WelcomePage(
-            onStart: (caregiver, patient, hasPrescription) {
+    home: profile == null
+        ? WelcomePage(
+            onDemo: webDemoEnabled
+                ? (withPrescription) {
+                    final scenario = WebDemo(
+                      withPrescription: withPrescription,
+                    );
+                    setState(() {
+                      demo = scenario;
+                      profile = (
+                        caregiver: scenario.caregiver,
+                        patient: scenario.patient,
+                      );
+                    });
+                  }
+                : null,
+            onStart: (caregiver, patient) {
               setState(
-                () => profile = (
-                  caregiver: caregiver,
-                  patient: patient,
-                  hasPrescription: hasPrescription,
-                ),
+                () => profile = (caregiver: caregiver, patient: patient),
               );
             },
+          )
+        : HomeShell(
+            caregiver: profile!.caregiver,
+            patient: profile!.patient,
+            api: widget.api,
+            demo: demo,
+            onExitDemo: demo == null
+                ? null
+                : () => setState(() {
+                    demo = null;
+                    profile = null;
+                  }),
           ),
   );
 }
@@ -100,37 +151,787 @@ class HomeShell extends StatefulWidget {
     super.key,
     required this.caregiver,
     required this.patient,
-    required this.hasPrescription,
+    this.api,
+    this.demo,
+    this.onExitDemo,
   });
 
   final String caregiver, patient;
-  final bool hasPrescription;
+  final CareApi? api;
+  final WebDemo? demo;
+  final VoidCallback? onExitDemo;
+
   @override
   State<HomeShell> createState() => _HomeShellState();
 }
 
 class _HomeShellState extends State<HomeShell> {
-  int page = 1, filter = 0, budget = 45000;
-  bool family = true, approved = false;
-  late List<CareActivity> activities = _initialAgenda();
+  late final CareApi api = widget.api ?? widget.demo?.createApi() ?? CareApi();
+  int page = 3;
+  int version = 1;
+  int nextPrescriptionId = 1;
+  int nextMedicationId = 1;
+  bool busy = false;
+  String? message;
+  Json? mealInput;
+  String routine = '';
+  String availability = '';
+  final prescriptions = <Json>[];
+  List<Json> meals = [];
+  List<Json> scheduleDraft = [];
+  List<Json> agenda = [];
+  final history = <({String title, String status, DateTime recordedAt})>[];
 
-  List<CareActivity> _initialAgenda() => initialActivities()
-      .where(
-        (activity) =>
-            widget.hasPrescription ||
-            activity.icon != Icons.medication_outlined,
-      )
-      .toList();
-  final List<String> issues = [], logs = [];
-  String get person => family ? widget.patient : widget.caregiver;
-  int get completed => activities.where((a) => a.done).length;
-  void toast(String text) => ScaffoldMessenger.of(context).showSnackBar(
-    SnackBar(content: Text(text), behavior: SnackBarBehavior.floating),
+  @override
+  void initState() {
+    super.initState();
+    final demo = widget.demo;
+    if (demo == null) return;
+    page = 1;
+    mealInput = demo.mealInput;
+    prescriptions.addAll(demo.prescriptions);
+    if (prescriptions.isNotEmpty) {
+      nextPrescriptionId = 2;
+      nextMedicationId = 2;
+    }
+    meals = demo.meals;
+    agenda = demo.agenda;
+    routine = 'Sarapan pukul 07.30, makan siang pukul 12.30.';
+    availability = 'Pendamping tersedia pada pagi dan siang.';
+    history.add((
+      title: agenda.first['title'] as String,
+      status: 'Selesai',
+      recordedAt: DateTime.parse(agenda.first['schedule_at'] as String),
+    ));
+  }
+
+  @override
+  void dispose() {
+    if (widget.api == null) api.close();
+    super.dispose();
+  }
+
+  void _inputsChanged() {
+    version++;
+    meals = [];
+    scheduleDraft = [];
+    message = null;
+  }
+
+  Future<T?> _sheet<T>(String title, Widget child) => showModalBottomSheet<T>(
+    context: context,
+    isScrollControlled: true,
+    useSafeArea: true,
+    showDragHandle: true,
+    backgroundColor: paper,
+    constraints: const BoxConstraints(maxWidth: 430),
+    builder: (context) => Padding(
+      padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(context).bottom),
+      child: SafeArea(
+        child: SingleChildScrollView(
+          keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+          padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      title,
+                      style: Theme.of(context).textTheme.headlineSmall,
+                    ),
+                  ),
+                  IconButton(
+                    onPressed: () => Navigator.pop(context),
+                    icon: const Icon(Icons.close),
+                    tooltip: 'Tutup',
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              child,
+            ],
+          ),
+        ),
+      ),
+    ),
+  );
+
+  Future<void> _editMealInput() async {
+    final input = await _sheet<Json>(
+      'Profil perawatan',
+      MealInputForm(
+        input: mealInput,
+        hasPrescription: prescriptions.isNotEmpty,
+      ),
+    );
+    if (!mounted || input == null) return;
+    setState(() {
+      mealInput = input;
+      _inputsChanged();
+    });
+  }
+
+  Future<void> _addPrescription() async {
+    final result = await _sheet<Json>('Tambah resep', const PrescriptionForm());
+    if (!mounted || result == null) return;
+    setState(() {
+      final id = nextPrescriptionId++;
+      prescriptions.add({
+        ...result,
+        'id': id,
+        'medications': (result['medications'] as List<Json>)
+            .map<Json>(
+              (item) => {
+                ...item,
+                'id': nextMedicationId++,
+                'prescription_id': id,
+              },
+            )
+            .toList(),
+      });
+      _inputsChanged();
+    });
+  }
+
+  Future<void> _editRoutine() async {
+    final form = GlobalKey<FormState>();
+    var newRoutine = routine;
+    var newAvailability = availability;
+    final result = await _sheet<bool>(
+      'Rutinitas dan ketersediaan',
+      Form(
+        key: form,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            CareFormField(
+              'Rutinitas harian',
+              initialValue: routine,
+              maxLines: 3,
+              onSaved: (value) => newRoutine = value,
+            ),
+            CareFormField(
+              'Ketersediaan pendamping',
+              initialValue: availability,
+              maxLines: 3,
+              onSaved: (value) => newAvailability = value,
+            ),
+            FilledButton(
+              onPressed: () {
+                form.currentState!.save();
+                Navigator.pop(form.currentContext!, true);
+              },
+              child: const Text('Simpan rutinitas'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (!mounted || result != true) return;
+    setState(() {
+      routine = newRoutine;
+      availability = newAvailability;
+      version++;
+      scheduleDraft = [];
+      message = null;
+    });
+  }
+
+  Future<void> _request(Future<void> Function(int) action) async {
+    if (busy) return;
+    setState(() {
+      busy = true;
+      message = null;
+    });
+    try {
+      await action(version);
+    } on CareApiException catch (error) {
+      if (mounted) setState(() => message = error.message);
+    } finally {
+      if (mounted) setState(() => busy = false);
+    }
+  }
+
+  Future<void> _generateMeals() async {
+    final input = mealInput;
+    if (input == null || busy) return;
+    setState(() {
+      meals = [];
+      scheduleDraft = [];
+    });
+    await _request((requestVersion) async {
+      final health = input['health_condition'] as Json;
+      final result = await api.generateMeals({
+        ...input,
+        'health_condition': {
+          ...health,
+          'isTherePrescription': prescriptions.isNotEmpty,
+        },
+      }, requestVersion);
+      if (!mounted || version != requestVersion) return;
+      setState(() {
+        meals = result.status == 'draft' ? result.meals : [];
+        scheduleDraft = [];
+        message = [
+          ...result.messages,
+          if (meals.isEmpty) 'Belum ada draf menu yang bisa ditinjau.',
+        ].join('\n');
+      });
+    });
+  }
+
+  Future<void> _generateSchedule() async {
+    if (meals.isEmpty || busy) return;
+    setState(() => scheduleDraft = []);
+    await _request((requestVersion) async {
+      final result = await api.generateSchedule({
+        'menu_disetujui': meals,
+        'prescriptions': prescriptions,
+        'rutinitas': {if (routine.isNotEmpty) 'notes': routine},
+        'ketersediaan_caregiver': {
+          if (availability.isNotEmpty) 'notes': availability,
+        },
+      }, requestVersion);
+      if (!mounted || version != requestVersion) return;
+      final invalidReference = result.reminders.any((reminder) {
+        final id = reminder['prescription_id'];
+        final items = (reminder['reminder_items'] as List?) ?? [];
+        if (id == null) return items.isNotEmpty;
+        return !prescriptions.any(
+          (prescription) =>
+              prescription['id'] == id &&
+              items.isNotEmpty &&
+              items.every(
+                (item) => (prescription['medications'] as List<Json>).any(
+                  (medication) => medication['id'] == item['medication_id'],
+                ),
+              ),
+        );
+      });
+      setState(() {
+        scheduleDraft =
+            result.status == 'draft' &&
+                !result.hasConflicts &&
+                !invalidReference
+            ? result.reminders
+            : [];
+        message = [
+          ...result.messages,
+          if (invalidReference)
+            'Referensi obat atau resep pada jadwal tidak cocok.',
+          if (scheduleDraft.isEmpty) 'Belum ada jadwal yang bisa disetujui.',
+        ].join('\n');
+      });
+    });
+  }
+
+  String _dateTime(DateTime date) {
+    final local = date.toLocal();
+    String two(int value) => value.toString().padLeft(2, '0');
+    return '${two(local.day)}/${two(local.month)}/${local.year} · '
+        '${two(local.hour)}:${two(local.minute)}';
+  }
+
+  String _reminderTime(Json reminder) =>
+      _dateTime(DateTime.parse(reminder['schedule_at'] as String));
+
+  List<String> _medicationInstructions(Json reminder) {
+    final items = reminder['reminder_items'] as List? ?? [];
+    final ids = items.map((item) => item['medication_id']).toSet();
+    return [
+      for (final prescription in prescriptions)
+        if (prescription['id'] == reminder['prescription_id'])
+          for (final medication in prescription['medications'] as List<Json>)
+            if (ids.contains(medication['id']))
+              '${medication['medicine_name']} · ${medication['dosage']} · '
+                  '${medication['frequency']} · ${medication['instruction']}',
+    ];
+  }
+
+  Widget _heading(
+    String title,
+    String description, {
+    required String label,
+    required IconData icon,
+  }) => Padding(
+    padding: const EdgeInsets.only(bottom: 18),
+    child: Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Eyebrow(label),
+              const SizedBox(height: 4),
+              Text(title, style: Theme.of(context).textTheme.headlineLarge),
+              const SizedBox(height: 6),
+              Text(description, style: const TextStyle(color: muted)),
+            ],
+          ),
+        ),
+        const SizedBox(width: 12),
+        IconTile(icon),
+      ],
+    ),
+  );
+
+  Widget _summaryCard({
+    required String label,
+    required String title,
+    required String description,
+    required Widget trailing,
+  }) => Container(
+    padding: const EdgeInsets.all(18),
+    decoration: BoxDecoration(
+      color: ink,
+      borderRadius: BorderRadius.circular(18),
+    ),
+    child: Row(
+      children: [
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                label,
+                style: const TextStyle(
+                  color: Color(0xFFB3D6BA),
+                  letterSpacing: 1,
+                  fontSize: 10,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                title,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w800,
+                  fontSize: 23,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                description,
+                style: const TextStyle(color: Color(0xFFD1DFD2), fontSize: 12),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(width: 14),
+        trailing,
+      ],
+    ),
+  );
+
+  Widget _agendaProgress() {
+    final complete = agenda
+        .where((reminder) => reminder['status'] == 'completed')
+        .length;
+    final progress = complete / agenda.length;
+    return _summaryCard(
+      label: 'PROGRES PERAWATAN',
+      title: '$complete / ${agenda.length}',
+      description: 'Kegiatan sudah dicatat',
+      trailing: SizedBox.square(
+        dimension: 60,
+        child: Stack(
+          alignment: Alignment.center,
+          fit: StackFit.expand,
+          children: [
+            CircularProgressIndicator(
+              value: progress,
+              color: signal,
+              backgroundColor: Colors.white24,
+              strokeWidth: 5,
+            ),
+            Center(
+              child: Text(
+                '${(progress * 100).round()}%',
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _recipe(Json meal) => Surface(
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const IconTile(Icons.ramen_dining_outlined, accent: true),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    meal['recipe_name'] as String,
+                    style: Theme.of(context).textTheme.titleLarge,
+                  ),
+                  const SizedBox(height: 3),
+                  Text(
+                    '${meal['servings']} porsi · ${meal['cooking_time']} menit',
+                    style: const TextStyle(color: muted),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+        if (meal['source'] case final String source) ...[
+          const SizedBox(height: 10),
+          BadgePill(source),
+        ],
+        const SizedBox(height: 8),
+        TextButton.icon(
+          icon: const Icon(Icons.arrow_forward_rounded, size: 18),
+          onPressed: () => _sheet<void>(
+            meal['recipe_name'] as String,
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                if (meal['description'] is String)
+                  Text(meal['description'] as String),
+                if (meal['source'] is String) Text('Sumber: ${meal['source']}'),
+                for (final ingredient in (meal['ingredients'] as List? ?? []))
+                  Text(
+                    '• ${ingredient['ingredient_name']} · ${ingredient['quantity']}',
+                  ),
+                const SizedBox(height: 12),
+                Text(meal['instructions'] as String),
+                if (meal['nutrition'] case final Json nutrition) ...[
+                  const SizedBox(height: 12),
+                  Text(
+                    'Energi ${nutrition['calories']} kkal · Protein ${nutrition['protein']} g',
+                  ),
+                  Text(
+                    'Karbohidrat ${nutrition['carbohydrates']} g · Lemak ${nutrition['fat']} g',
+                  ),
+                ],
+              ],
+            ),
+          ),
+          label: const Text('Lihat detail'),
+        ),
+      ],
+    ),
+  );
+
+  Widget _menu() => Column(
+    crossAxisAlignment: CrossAxisAlignment.stretch,
+    children: [
+      _heading(
+        'Menu Hari Ini',
+        'Tinjau rencana makan untuk ${widget.patient}.',
+        label: 'RENCANA MAKAN',
+        icon: Icons.restaurant_menu_rounded,
+      ),
+      if (mealInput == null)
+        OutlinedButton(
+          onPressed: busy ? null : _editMealInput,
+          child: const Text('Lengkapi profil dan budget'),
+        )
+      else ...[
+        _summaryCard(
+          label: 'BUDGET BELANJA',
+          title:
+              'Rp${NumberFormat.decimalPattern('id_ID').format(mealInput!['budget'])}',
+          description: 'Anggaran dari profil perawatan',
+          trailing: const Icon(
+            Icons.account_balance_wallet_outlined,
+            color: Color(0xFFB3D6BA),
+            size: 29,
+          ),
+        ),
+        const SizedBox(height: 12),
+        FilledButton.icon(
+          onPressed: busy ? null : _generateMeals,
+          icon: const Icon(Icons.auto_awesome_outlined, size: 19),
+          label: const Text('Buat draf menu'),
+        ),
+      ],
+      if (busy) const LinearProgressIndicator(),
+      if (message != null && message!.isNotEmpty) ...[
+        const SizedBox(height: 12),
+        Notice(text: message!, icon: Icons.info_outline),
+      ],
+      if (meals.isEmpty) ...[
+        const SizedBox(height: 12),
+        const EmptyPanel(
+          icon: Icons.ramen_dining_outlined,
+          title: 'Belum ada menu.',
+          description: 'Draf akan tampil setelah server mengirim resep.',
+        ),
+      ],
+      for (final meal in meals) ...[const SizedBox(height: 12), _recipe(meal)],
+      if (meals.isNotEmpty) ...[
+        const SizedBox(height: 12),
+        OutlinedButton.icon(
+          onPressed: busy ? null : _editRoutine,
+          icon: const Icon(Icons.tune_rounded, size: 19),
+          label: const Text('Isi rutinitas pendampingan'),
+        ),
+        FilledButton.icon(
+          onPressed: busy ? null : _generateSchedule,
+          icon: const Icon(Icons.event_available_outlined, size: 19),
+          label: const Text('Setujui menu dan buat jadwal'),
+        ),
+      ],
+      if (scheduleDraft.isNotEmpty) ...[
+        const SizedBox(height: 20),
+        Text('Tinjau jadwal', style: Theme.of(context).textTheme.titleLarge),
+        const Text(
+          'Periksa waktu dan kecocokannya dengan resep sebelum menyetujui.',
+        ),
+        for (final reminder in scheduleDraft)
+          ListTile(
+            contentPadding: EdgeInsets.zero,
+            leading: const IconTile(Icons.schedule_rounded),
+            title: Text(reminder['title'] as String),
+            subtitle: Text(
+              [
+                _reminderTime(reminder),
+                ..._medicationInstructions(reminder),
+              ].join('\n'),
+            ),
+          ),
+        FilledButton(
+          onPressed: busy
+              ? null
+              : () => setState(() {
+                  agenda =
+                      scheduleDraft
+                          .map((item) => {...item, 'status': 'pending'})
+                          .toList()
+                        ..sort(
+                          (a, b) => DateTime.parse(a['schedule_at'] as String)
+                              .compareTo(
+                                DateTime.parse(b['schedule_at'] as String),
+                              ),
+                        );
+                  scheduleDraft = [];
+                  page = 0;
+                }),
+          child: const Text('Setujui dan masukkan ke agenda'),
+        ),
+      ],
+    ],
+  );
+
+  Widget _agenda() => Column(
+    crossAxisAlignment: CrossAxisAlignment.stretch,
+    children: [
+      _heading(
+        'Agenda Perawatan',
+        'Jadwal yang disetujui untuk ${widget.patient}.',
+        label: 'PENDAMPINGAN',
+        icon: Icons.calendar_today_outlined,
+      ),
+      if (agenda.isNotEmpty) ...[
+        _agendaProgress(),
+        const SizedBox(height: 20),
+        Text('Agenda hari ini', style: Theme.of(context).textTheme.titleLarge),
+      ],
+      if (agenda.isEmpty)
+        const EmptyPanel(
+          title: 'Belum ada jadwal yang disetujui.',
+          icon: Icons.event_outlined,
+          description:
+              'Jadwal yang kamu setujui di halaman Menu akan tampil di sini.',
+        ),
+      for (final reminder in agenda) ...[
+        const SizedBox(height: 12),
+        Surface(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  IconTile(
+                    reminder['status'] == 'completed'
+                        ? Icons.check_rounded
+                        : reminder['prescription_id'] != null
+                        ? Icons.medication_outlined
+                        : Icons.schedule_rounded,
+                    accent: reminder['prescription_id'] != null,
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          reminder['title'] as String,
+                          style: Theme.of(context).textTheme.titleLarge,
+                        ),
+                        Text(
+                          _reminderTime(reminder),
+                          style: const TextStyle(color: muted),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              for (final instruction in _medicationInstructions(reminder))
+                Text(instruction),
+              if (reminder['status'] == 'completed')
+                const BadgePill('Selesai')
+              else
+                TextButton(
+                  onPressed: () => setState(() {
+                    reminder['status'] = 'completed';
+                    history.insert(0, (
+                      title: reminder['title'] as String,
+                      status: 'Selesai',
+                      recordedAt: DateTime.now(),
+                    ));
+                  }),
+                  child: const Text('Catat sebagai selesai'),
+                ),
+            ],
+          ),
+        ),
+      ],
+    ],
+  );
+
+  Widget _history() => Column(
+    crossAxisAlignment: CrossAxisAlignment.stretch,
+    children: [
+      _heading(
+        'Riwayat',
+        'Pencatatan kegiatan oleh ${widget.caregiver}.',
+        label: 'CATATAN PERAWATAN',
+        icon: Icons.history_rounded,
+      ),
+      if (history.isEmpty)
+        const EmptyPanel(
+          title: 'Belum ada kegiatan yang dicatat.',
+          icon: Icons.history,
+          description:
+              'Catat kegiatan di Agenda untuk melihat riwayatnya di sini.',
+        ),
+      for (final item in history) ...[
+        Surface(
+          child: ListTile(
+            contentPadding: EdgeInsets.zero,
+            leading: const IconTile(Icons.fact_check_outlined),
+            title: Text(
+              item.title,
+              style: const TextStyle(fontWeight: FontWeight.w700),
+            ),
+            subtitle: Text('${item.status} · ${_dateTime(item.recordedAt)}'),
+          ),
+        ),
+        const SizedBox(height: 10),
+      ],
+    ],
+  );
+
+  Widget _profile() => Column(
+    crossAxisAlignment: CrossAxisAlignment.stretch,
+    children: [
+      _heading(
+        'Profil Perawatan',
+        'Pendamping: ${widget.caregiver}',
+        label: 'RUANG KELUARGA',
+        icon: Icons.badge_outlined,
+      ),
+      _summaryCard(
+        label: 'PENDAMPING',
+        title: widget.caregiver,
+        description: 'Profil aktif',
+        trailing: const Icon(
+          Icons.badge_outlined,
+          color: Color(0xFFB3D6BA),
+          size: 28,
+        ),
+      ),
+      const SizedBox(height: 12),
+      Surface(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const IconTile(Icons.person_outline_rounded),
+            const SizedBox(height: 12),
+            const Eyebrow('ORANG YANG DIRAWAT'),
+            const SizedBox(height: 4),
+            Text(widget.patient, style: Theme.of(context).textTheme.titleLarge),
+            Text(
+              mealInput == null
+                  ? 'Kondisi kesehatan belum diisi.'
+                  : (mealInput!['health_condition'] as Json)['condition_name']
+                        as String,
+            ),
+            TextButton(
+              onPressed: busy ? null : _editMealInput,
+              child: const Text('Isi profil dan kebutuhan makan'),
+            ),
+          ],
+        ),
+      ),
+      const SizedBox(height: 16),
+      Text('Resep obat', style: Theme.of(context).textTheme.titleLarge),
+      if (prescriptions.isEmpty) ...[
+        const SizedBox(height: 8),
+        const Notice(
+          text: 'Belum ada resep yang dicatat.',
+          icon: Icons.medication_outlined,
+        ),
+      ],
+      for (final prescription in prescriptions)
+        ListTile(
+          contentPadding: EdgeInsets.zero,
+          leading: const IconTile(Icons.medication_outlined, accent: true),
+          title: Text('Resep ${prescription['prescription_date']}'),
+          subtitle: Text(
+            (prescription['medications'] as List<Json>)
+                .map((item) => item['medicine_name'])
+                .join(', '),
+          ),
+        ),
+      OutlinedButton.icon(
+        onPressed: busy ? null : _addPrescription,
+        icon: const Icon(Icons.add_rounded, size: 19),
+        label: const Text('Tambah resep'),
+      ),
+      if (widget.onExitDemo != null) ...[
+        const SizedBox(height: 12),
+        TextButton.icon(
+          onPressed: busy ? null : widget.onExitDemo,
+          icon: const Icon(Icons.swap_horiz_rounded),
+          label: const Text('Ganti skenario demo'),
+        ),
+      ],
+      const SizedBox(height: 16),
+      const Text(
+        'Input dan catatan saat ini tersimpan selama sesi aplikasi.',
+        style: TextStyle(fontSize: 12, color: muted),
+      ),
+    ],
   );
 
   @override
   Widget build(BuildContext context) => Scaffold(
     backgroundColor: shellBackground,
+
     bottomNavigationBar: Align(
       alignment: Alignment.bottomCenter,
       heightFactor: 1,
@@ -139,21 +940,24 @@ class _HomeShellState extends State<HomeShell> {
         child: NavigationBar(
           height: 68,
           backgroundColor: paper,
-          selectedIndex: page,
           indicatorColor: paleTeal,
+          selectedIndex: page,
           onDestinationSelected: (value) => setState(() => page = value),
           destinations: const [
             NavigationDestination(
               icon: Icon(Icons.home_outlined),
+              selectedIcon: Icon(Icons.home_rounded),
               label: 'Hari Ini',
             ),
             NavigationDestination(
-              icon: Icon(Icons.restaurant_menu),
+              icon: Icon(Icons.restaurant_menu_outlined),
+              selectedIcon: Icon(Icons.restaurant_rounded),
               label: 'Menu',
             ),
             NavigationDestination(icon: Icon(Icons.history), label: 'Riwayat'),
             NavigationDestination(
               icon: Icon(Icons.person_outline),
+              selectedIcon: Icon(Icons.person_rounded),
               label: 'Profil',
             ),
           ],
@@ -170,14 +974,38 @@ class _HomeShellState extends State<HomeShell> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                _topbar(),
+                Container(
+                  decoration: const BoxDecoration(
+                    color: paper,
+                    border: Border(bottom: BorderSide(color: line)),
+                  ),
+                  padding: const EdgeInsets.fromLTRB(20, 12, 20, 12),
+                  child: Row(
+                    children: [
+                      const Expanded(child: Brand(compact: true)),
+                      const SizedBox(width: 8),
+                      if (widget.demo != null) ...[
+                        const BadgePill('Demo web', color: softRed),
+                        const SizedBox(width: 8),
+                      ],
+                      CircleAvatar(
+                        radius: 17,
+                        backgroundColor: paleTeal,
+                        foregroundColor: ink,
+                        child: Text(
+                          widget.caregiver.characters.first.toUpperCase(),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
                 Expanded(
                   child: SingleChildScrollView(
                     key: ValueKey(page),
                     padding: const EdgeInsets.all(20),
                     child: switch (page) {
-                      0 => _today(),
-                      1 => _meals(),
+                      0 => _agenda(),
+                      1 => _menu(),
                       2 => _history(),
                       _ => _profile(),
                     },
@@ -188,1157 +1016,6 @@ class _HomeShellState extends State<HomeShell> {
           ),
         ),
       ),
-    ),
-  );
-
-  Widget _topbar() => Container(
-    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
-    decoration: const BoxDecoration(
-      color: paper,
-      border: Border(bottom: BorderSide(color: line)),
-    ),
-    child: Row(
-      children: [
-        const Icon(Icons.water_drop, color: red, size: 17),
-        const SizedBox(width: 6),
-        const Expanded(
-          child: Text(
-            'TemanRawat',
-            style: TextStyle(fontWeight: FontWeight.w700),
-          ),
-        ),
-        CircleAvatar(
-          radius: 17,
-          backgroundColor: paleTeal,
-          foregroundColor: teal,
-          child: Text(widget.caregiver.characters.first.toUpperCase()),
-        ),
-      ],
-    ),
-  );
-
-  Widget _today() => Column(
-    crossAxisAlignment: CrossAxisAlignment.start,
-    children: [
-      const Eyebrow('PROGRES HARI INI'),
-      const SizedBox(height: 8),
-      Text(
-        'Selamat pagi, ${widget.caregiver}',
-        style: Theme.of(context).textTheme.headlineLarge,
-      ),
-      const SizedBox(height: 8),
-      Text(
-        'Mari jalani hari yang lebih teratur bersama $person.',
-        style: const TextStyle(color: muted),
-      ),
-      const SizedBox(height: 26),
-      _hero(),
-      const SizedBox(height: 24),
-      LayoutBuilder(
-        builder: (context, c) {
-          final agenda = _agenda();
-          final aside = Column(
-            children: [_menuSummary(), const SizedBox(height: 20), _careNote()],
-          );
-          return c.maxWidth > 720
-              ? Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Expanded(flex: 7, child: agenda),
-                    const SizedBox(width: 24),
-                    Expanded(flex: 4, child: aside),
-                  ],
-                )
-              : Column(children: [agenda, const SizedBox(height: 24), aside]);
-        },
-      ),
-      const SizedBox(height: 24),
-      const Center(
-        child: Text(
-          'Dibuat untuk menemani, satu hari pada satu waktu.',
-          style: TextStyle(color: muted, fontSize: 12),
-        ),
-      ),
-    ],
-  );
-
-  Widget _hero() => Container(
-    clipBehavior: Clip.antiAlias,
-    decoration: BoxDecoration(
-      color: teal,
-      borderRadius: BorderRadius.circular(24),
-    ),
-    child: LayoutBuilder(
-      builder: (context, c) => Row(
-        children: [
-          Expanded(
-            flex: 6,
-            child: Padding(
-              padding: const EdgeInsets.all(28),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      const Icon(
-                        Icons.favorite_outline,
-                        size: 16,
-                        color: Color(0xFFBCDDD2),
-                      ),
-                      const SizedBox(width: 8),
-                      Flexible(
-                        child: Text(
-                          family ? 'RAWAT KELUARGA' : 'RAWAT DIRI',
-                          style: const TextStyle(
-                            color: Color(0xFFBCDDD2),
-                            letterSpacing: 1.7,
-                            fontSize: 11,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 18),
-                  Text(
-                    'Ruang tenang untuk\nmerawat $person.',
-                    style: TextStyle(
-                      fontFamily: 'Georgia',
-                      fontSize: c.maxWidth > 600 ? 32 : 25,
-                      height: 1.25,
-                      color: Colors.white,
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  const Text(
-                    'Tak perlu mengingat semuanya sendiri.\nKita jalani satu per satu, ya.',
-                    style: TextStyle(
-                      color: Color(0xFFD0E5DF),
-                      height: 1.7,
-                      fontSize: 13,
-                    ),
-                  ),
-                  const SizedBox(height: 24),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              '$completed dari ${activities.length} kegiatan tercatat',
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 12,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                            const SizedBox(height: 10),
-                            ClipRRect(
-                              borderRadius: BorderRadius.circular(10),
-                              child: LinearProgressIndicator(
-                                value: completed / activities.length,
-                                minHeight: 6,
-                                color: const Color(0xFFEAB18F),
-                                backgroundColor: Colors.white24,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(width: 16),
-                      Text(
-                        '${(completed / activities.length * 100).round()}%',
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 20,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-          ),
-          if (c.maxWidth > 540)
-            const Expanded(
-              flex: 4,
-              child: SizedBox(height: 270, child: CareIllustration()),
-            ),
-        ],
-      ),
-    ),
-  );
-
-  Widget _agenda() {
-    final visible = activities.where(
-      (a) => filter == 0 || (filter == 1 ? !a.done : a.done),
-    );
-    return Surface(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Expanded(
-                child: Text(
-                  'Agenda hari ini',
-                  style: Theme.of(context).textTheme.titleLarge,
-                ),
-              ),
-              IconButton(
-                tooltip: 'Tambah kegiatan',
-                onPressed: _addActivity,
-                icon: const Icon(Icons.add, color: teal),
-              ),
-            ],
-          ),
-          const Text(
-            'Sedikit demi sedikit, tetap berarti.',
-            style: TextStyle(color: muted, fontSize: 12),
-          ),
-          const SizedBox(height: 18),
-          Wrap(
-            spacing: 8,
-            children: List.generate(
-              3,
-              (i) => ChoiceChip(
-                label: Text(['Semua', 'Belum dicatat', 'Selesai'][i]),
-                selected: filter == i,
-                showCheckmark: false,
-                selectedColor: paleTeal,
-                side: BorderSide(color: filter == i ? paleTeal : line),
-                labelStyle: TextStyle(
-                  color: filter == i ? teal : muted,
-                  fontSize: 12,
-                ),
-                onSelected: (_) => setState(() => filter = i),
-              ),
-            ),
-          ),
-          const SizedBox(height: 22),
-          if (visible.isEmpty)
-            const Padding(
-              padding: EdgeInsets.all(24),
-              child: Text(
-                'Belum ada kegiatan pada kategori ini.',
-                style: TextStyle(color: muted),
-              ),
-            ),
-          ...visible.map(_activityTile),
-          const Divider(height: 28),
-          Center(
-            child: TextButton.icon(
-              onPressed: _addActivity,
-              icon: const Icon(Icons.add, size: 17),
-              label: const Text('Tambah kegiatan'),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _activityTile(CareActivity a) => InkWell(
-    borderRadius: BorderRadius.circular(14),
-    onTap: () => _activityDetails(a),
-    child: Padding(
-      padding: const EdgeInsets.symmetric(vertical: 12),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          SizedBox(
-            width: 48,
-            child: Padding(
-              padding: const EdgeInsets.only(top: 13),
-              child: Text(
-                a.time,
-                style: const TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w600,
-                  color: muted,
-                ),
-              ),
-            ),
-          ),
-          Container(
-            width: 42,
-            height: 42,
-            decoration: BoxDecoration(
-              color: a.done ? paleTeal : a.tint,
-              borderRadius: BorderRadius.circular(13),
-            ),
-            child: Icon(
-              a.done ? Icons.check_rounded : a.icon,
-              color: a.done ? teal : ink,
-              size: 20,
-            ),
-          ),
-          const SizedBox(width: 14),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  a.title,
-                  style: const TextStyle(
-                    fontWeight: FontWeight.w600,
-                    fontSize: 14,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  a.subtitle,
-                  style: const TextStyle(
-                    color: muted,
-                    fontSize: 12,
-                    height: 1.5,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  a.done ? '✓  Sudah dicatat' : a.source,
-                  style: TextStyle(
-                    color: a.done ? teal : muted,
-                    fontSize: 10,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(width: 6),
-          const Icon(Icons.chevron_right, color: muted, size: 20),
-        ],
-      ),
-    ),
-  );
-
-  Widget _menuSummary() => Surface(
-    child: Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const Row(
-          children: [
-            Icon(Icons.auto_awesome_outlined, color: teal, size: 19),
-            SizedBox(width: 9),
-            Expanded(
-              child: Text(
-                'Di dapur hari ini',
-                style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700),
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 18),
-        Container(
-          height: 130,
-          decoration: BoxDecoration(
-            color: const Color(0xFFF0E7D5),
-            borderRadius: BorderRadius.circular(15),
-          ),
-          child: const Center(child: FoodIllustration()),
-        ),
-        const SizedBox(height: 16),
-        const Eyebrow('MENU MAKAN SIANG'),
-        const SizedBox(height: 6),
-        const Text(
-          'Sup ayam & sayur hangat',
-          style: TextStyle(fontWeight: FontWeight.w700, fontSize: 16),
-        ),
-        const SizedBox(height: 7),
-        const Text(
-          'Sederhana, hangat, dan mudah disiapkan.',
-          style: TextStyle(fontSize: 12, color: muted),
-        ),
-        const SizedBox(height: 16),
-        Row(
-          children: [
-            const Icon(Icons.schedule, size: 15, color: muted),
-            const SizedBox(width: 5),
-            const Expanded(
-              child: Text(
-                '25 menit',
-                style: TextStyle(color: muted, fontSize: 12),
-              ),
-            ),
-            const SizedBox(width: 8),
-            Flexible(
-              child: Text(
-                money(18000),
-                textAlign: TextAlign.end,
-                style: const TextStyle(
-                  color: teal,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-            ),
-          ],
-        ),
-        const Divider(height: 28),
-        Row(
-          children: [
-            const Expanded(
-              child: Text(
-                'Estimasi belanja hari ini',
-                style: TextStyle(color: muted, fontSize: 12),
-              ),
-            ),
-            Text(
-              money(demoCost),
-              style: const TextStyle(fontWeight: FontWeight.w700),
-            ),
-          ],
-        ),
-        const SizedBox(height: 7),
-        Text(
-          'Dari budget ${money(budget)} • harga contoh',
-          style: const TextStyle(color: muted, fontSize: 11),
-        ),
-        const SizedBox(height: 14),
-        SizedBox(
-          width: double.infinity,
-          child: OutlinedButton(
-            onPressed: () => setState(() => page = 1),
-            child: const Text('Lihat menu & budget  ↗'),
-          ),
-        ),
-      ],
-    ),
-  );
-
-  Widget _careNote() => Container(
-    padding: const EdgeInsets.all(23),
-    decoration: BoxDecoration(
-      color: peach,
-      borderRadius: BorderRadius.circular(20),
-    ),
-    child: Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const Row(
-          children: [
-            Icon(
-              Icons.favorite_border_rounded,
-              size: 18,
-              color: Color(0xFF936249),
-            ),
-            SizedBox(width: 9),
-            Expanded(
-              child: Text(
-                'Untuk yang merawat',
-                style: TextStyle(
-                  fontWeight: FontWeight.w700,
-                  color: Color(0xFF79513C),
-                ),
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 12),
-        const Text(
-          'Kamu juga butuh jeda. Ambil napas, minum air, dan beri ruang untuk dirimu.',
-          style: TextStyle(color: Color(0xFF79513C), height: 1.7, fontSize: 13),
-        ),
-        const SizedBox(height: 12),
-        TextButton(
-          onPressed: _reportIssue,
-          child: Text(
-            issues.isEmpty
-                ? 'Ada kendala? Catat di sini →'
-                : '${issues.length} kendala tercatat →',
-            style: const TextStyle(color: Color(0xFF79513C), fontSize: 12),
-          ),
-        ),
-      ],
-    ),
-  );
-
-  Widget _meals() => Column(
-    crossAxisAlignment: CrossAxisAlignment.start,
-    children: [
-      Text('Menu Hari Ini', style: Theme.of(context).textTheme.headlineLarge),
-      const SizedBox(height: 8),
-      Text('Rencana makan untuk $person', style: const TextStyle(color: muted)),
-      const SizedBox(height: 20),
-      DecoratedBox(
-        decoration: BoxDecoration(
-          color: ink,
-          borderRadius: BorderRadius.circular(18),
-        ),
-        child: Padding(
-          padding: const EdgeInsets.all(18),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              const Text(
-                'ESTIMASI ANGGARAN',
-                style: TextStyle(
-                  color: Color(0xFFBFE2C8),
-                  fontSize: 11,
-                  letterSpacing: 1.2,
-                ),
-              ),
-              const SizedBox(height: 6),
-              Text(
-                money(demoCost),
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 27,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-              const SizedBox(height: 10),
-              LinearProgressIndicator(
-                value: (demoCost / budget).clamp(0.0, 1.0),
-                backgroundColor: Colors.white24,
-                color: budget >= demoCost ? const Color(0xFFBFE2C8) : peach,
-                borderRadius: BorderRadius.circular(5),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                'Dari anggaran ${money(budget)}',
-                style: const TextStyle(color: Colors.white),
-              ),
-            ],
-          ),
-        ),
-      ),
-      const SizedBox(height: 16),
-      for (final meal in demoMeals) ...[
-        Surface(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              BadgePill(
-                meal.slot.toUpperCase(),
-                color: meal.id == 'lunch' ? peach : paleTeal,
-              ),
-              const SizedBox(height: 10),
-              Text(meal.name, style: Theme.of(context).textTheme.titleLarge),
-              const SizedBox(height: 6),
-              Text(
-                '${meal.minutes} menit · 1 porsi · ${money(meal.cost)}',
-                style: const TextStyle(color: muted, fontSize: 12),
-              ),
-              TextButton.icon(
-                onPressed: () => _recipe(meal),
-                icon: const Icon(Icons.arrow_forward, size: 16),
-                label: const Text('Lihat Detail'),
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 12),
-      ],
-      Notice(
-        text: approved ? 'Jadwal aktif untuk hari ini.' : 'Periksa waktu dan sumber setiap kegiatan sebelum mengaktifkannya.',
-        icon: Icons.schedule_outlined,
-      ),
-      const SizedBox(height: 12),
-      SizedBox(
-        width: double.infinity,
-        child: FilledButton.icon(
-          onPressed: approved ? null : _reviewSchedule,
-          icon: Icon(approved ? Icons.check : Icons.arrow_forward),
-          label: Text(approved ? 'Rencana sudah diterapkan' : 'Tinjau Jadwal'),
-        ),
-      ),
-      const SizedBox(height: 24),
-      Surface(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Wrap(
-              spacing: 16,
-              crossAxisAlignment: WrapCrossAlignment.center,
-              children: [
-                Text(
-                  'Daftar belanja',
-                  style: Theme.of(context).textTheme.titleLarge,
-                ),
-                TextButton.icon(
-                  onPressed: _editBudget,
-                  icon: const Icon(Icons.edit_outlined, size: 16),
-                  label: const Text('Ubah budget'),
-                ),
-              ],
-            ),
-            const Text(
-              'Kebutuhan contoh untuk 1 orang • stok sudah diperhitungkan',
-              style: TextStyle(color: muted, fontSize: 12),
-            ),
-            const SizedBox(height: 20),
-            ...shopping.map(
-              (item) => Padding(
-                padding: const EdgeInsets.symmetric(vertical: 11),
-                child: Row(
-                  children: [
-                    const Icon(
-                      Icons.shopping_bag_outlined,
-                      size: 19,
-                      color: muted,
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(item.$1),
-                          Text(
-                            item.$2,
-                            style: const TextStyle(color: muted, fontSize: 12),
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Flexible(
-                      child: Text(
-                        money(item.$3),
-                        textAlign: TextAlign.end,
-                        style: const TextStyle(fontWeight: FontWeight.w600),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-            const Divider(height: 30),
-            Row(
-              children: [
-                const Expanded(
-                  child: Text(
-                    'Total estimasi belanja',
-                    style: TextStyle(fontWeight: FontWeight.w700),
-                  ),
-                ),
-                Text(
-                  money(demoCost),
-                  style: const TextStyle(
-                    fontWeight: FontWeight.w700,
-                    fontSize: 22,
-                    color: teal,
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            Text(
-              budget >= demoCost
-                  ? 'Sisa budget ${money(budget - demoCost)} dari ${money(budget)}'
-                  : 'Melebihi budget sebesar ${money(demoCost - budget)}',
-              style: TextStyle(
-                color: budget >= demoCost ? teal : const Color(0xFFA3453D),
-              ),
-            ),
-            const SizedBox(height: 12),
-            const Text(
-              'Harga dan menu adalah data fiktif untuk demo.',
-              style: TextStyle(fontSize: 12, color: muted),
-            ),
-          ],
-        ),
-      ),
-    ],
-  );
-
-  Widget _history() => Column(
-    crossAxisAlignment: CrossAxisAlignment.start,
-    children: [
-      const Eyebrow('SETIAP CATATAN PUNYA CERITA'),
-      const SizedBox(height: 8),
-      Text(
-        'Riwayat perawatan',
-        style: Theme.of(context).textTheme.headlineLarge,
-      ),
-      const SizedBox(height: 8),
-      Text(
-        'Catatan kecil perjalanan perawatan $person.',
-        style: const TextStyle(color: muted),
-      ),
-      const SizedBox(height: 26),
-      Surface(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const BadgePill('Sabtu, 7 November 2026'),
-            const SizedBox(height: 22),
-            Text(
-              '$completed kegiatan tercatat',
-              style: Theme.of(context).textTheme.titleLarge,
-            ),
-            const SizedBox(height: 8),
-            const Text(
-              'Catatan merupakan laporan pengguna atau caregiver.',
-              style: TextStyle(color: muted, fontSize: 12),
-            ),
-            const Divider(height: 32),
-            ...activities.where((a) => a.done).map(_activityTile),
-            if (logs.isNotEmpty) ...[
-              const Divider(height: 28),
-              const Eyebrow('AKTIVITAS SESI INI'),
-              const SizedBox(height: 12),
-              ...logs.reversed.map(
-                (l) => ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  leading: const Icon(Icons.receipt_long_outlined, color: teal),
-                  title: Text(l, style: const TextStyle(fontSize: 13)),
-                ),
-              ),
-            ],
-            if (issues.isNotEmpty) ...[
-              const Divider(height: 28),
-              const Eyebrow('KENDALA TERBUKA'),
-              ...issues.map(
-                (i) => ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  leading: const Icon(
-                    Icons.flag_outlined,
-                    color: Color(0xFFA3453D),
-                  ),
-                  title: Text(i),
-                  subtitle: Text(
-                    'Dicatat oleh ${widget.caregiver} • belum ditangani',
-                  ),
-                ),
-              ),
-            ],
-          ],
-        ),
-      ),
-    ],
-  );
-
-  Widget _profile() => Column(
-    crossAxisAlignment: CrossAxisAlignment.start,
-    children: [
-      const Eyebrow('KENALI YANG KITA RAWAT'),
-      const SizedBox(height: 8),
-      Text(
-        'Profil perawatan',
-        style: Theme.of(context).textTheme.headlineLarge,
-      ),
-      const SizedBox(height: 8),
-      const Text(
-        'Arahan yang jelas, perawatan lebih terarah.',
-        style: TextStyle(color: muted),
-      ),
-      const SizedBox(height: 26),
-      Surface(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'Mode perawatan',
-              style: TextStyle(fontWeight: FontWeight.w700),
-            ),
-            const SizedBox(height: 16),
-            Wrap(
-              spacing: 8,
-              children: [
-                ChoiceChip(
-                  label: const Text('Rawat Keluarga'),
-                  selected: family,
-                  onSelected: (_) => _switchMode(true),
-                ),
-                ChoiceChip(
-                  label: const Text('Rawat Diri'),
-                  selected: !family,
-                  onSelected: (_) => _switchMode(false),
-                ),
-              ],
-            ),
-            const SizedBox(height: 26),
-            Row(
-              children: [
-                CircleAvatar(
-                  radius: 30,
-                  backgroundColor: peach,
-                  child: Text(
-                    family ? 'S' : 'R',
-                    style: const TextStyle(fontSize: 25, color: ink),
-                  ),
-                ),
-                const SizedBox(width: 18),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        person,
-                        style: Theme.of(context).textTheme.headlineSmall,
-                      ),
-                      Text(
-                        family
-                            ? 'Dirawat oleh ${widget.caregiver}'
-                            : '28 tahun • Dikelola sendiri',
-                        style: const TextStyle(color: muted),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-            const Divider(height: 36),
-            const Notice(
-              text: 'Konsultasi tercatat • 5 November 2026\nSumber: catatan konsultasi fiktif untuk demo.',
-              icon: Icons.verified_outlined,
-            ),
-            const SizedBox(height: 24),
-            const Text(
-              'Arahan & kebutuhan',
-              style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700),
-            ),
-            const ListTile(
-              contentPadding: EdgeInsets.zero,
-              leading: Icon(Icons.restaurant_outlined, color: teal),
-              title: Text('Makanan rumahan'),
-              subtitle: Text('Preferensi: tekstur lembut, mudah dimasak.'),
-            ),
-            const ListTile(
-              contentPadding: EdgeInsets.zero,
-              leading: Icon(Icons.info_outline, color: teal),
-              title: Text('Aturan obat dari catatan konsultasi'),
-              subtitle: Text(
-                'Contoh pemeriksaan catatan pukul 08.00. Detail resep perlu dikonfirmasi.',
-              ),
-            ),
-            ListTile(
-              contentPadding: EdgeInsets.zero,
-              leading: const Icon(
-                Icons.account_balance_wallet_outlined,
-                color: teal,
-              ),
-              title: const Text('Budget harian'),
-              subtitle: Text('${money(budget)} • ubah di Menu & Budget'),
-            ),
-          ],
-        ),
-      ),
-      const SizedBox(height: 20),
-      const Notice(
-        text: 'Prototipe tampilan: perubahan hanya bertahan selama sesi ini. AI, penyimpanan permanen, dan notifikasi perangkat belum terhubung.',
-        icon: Icons.science_outlined,
-      ),
-    ],
-  );
-
-  void _switchMode(bool value) {
-    if (value == family) return;
-    setState(() {
-      family = value;
-      activities = _initialAgenda();
-      approved = false;
-      filter = 0;
-      budget = 45000;
-      issues.clear();
-      logs.clear();
-    });
-    toast('Beralih ke profil demo $person. Data sesi direset.');
-  }
-
-  Future<void> _sheet(String title, Widget Function(BuildContext) content) =>
-      showModalBottomSheet<void>(
-        context: context,
-        isScrollControlled: true,
-        useSafeArea: true,
-        showDragHandle: true,
-        backgroundColor: paper,
-        constraints: const BoxConstraints(maxWidth: 620),
-        builder: (ctx) => SafeArea(
-          child: Padding(
-            padding: EdgeInsets.fromLTRB(
-              24,
-              0,
-              24,
-              MediaQuery.viewInsetsOf(ctx).bottom + 24,
-            ),
-            child: SingleChildScrollView(
-              keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(title, style: Theme.of(ctx).textTheme.headlineSmall),
-                  const SizedBox(height: 20),
-                  content(ctx),
-                ],
-              ),
-            ),
-          ),
-        ),
-      );
-
-  void _activityDetails(CareActivity a) => _sheet(
-    a.title,
-    (ctx) => Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        BadgePill(
-          '${a.time}  •  ${a.done ? 'Sudah dicatat' : 'Belum dicatat'}',
-        ),
-        const SizedBox(height: 20),
-        Text(a.subtitle),
-        const SizedBox(height: 16),
-        Notice(text: '${a.source}\n${a.note}', icon: Icons.info_outline),
-        const SizedBox(height: 24),
-        SizedBox(
-          width: double.infinity,
-          child: FilledButton.icon(
-            onPressed: () {
-              setState(() {
-                a.done = !a.done;
-                logs.add(
-                  '${a.done ? 'Konfirmasi' : 'Koreksi catatan'}: ${a.title} • ${widget.caregiver}',
-                );
-              });
-              Navigator.pop(ctx);
-            },
-            icon: Icon(a.done ? Icons.undo : Icons.check),
-            label: Text(
-              a.done
-                  ? 'Koreksi: belum dikonfirmasi'
-                  : 'Konfirmasi kegiatan selesai',
-            ),
-          ),
-        ),
-        const SizedBox(height: 8),
-        TextButton(
-          onPressed: () {
-            Navigator.pop(ctx);
-            _reportIssue();
-          },
-          child: const Text('Catat kendala'),
-        ),
-      ],
-    ),
-  );
-
-  Future<void> _addActivity() async {
-    final name = TextEditingController();
-    TimeOfDay time = const TimeOfDay(hour: 16, minute: 0);
-    await _sheet(
-      'Tambah kegiatan',
-      (ctx) => StatefulBuilder(
-        builder: (ctx, update) => Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'Tambahkan kegiatan pribadi ke agenda contoh.',
-              style: TextStyle(color: muted),
-            ),
-            const SizedBox(height: 20),
-            TextField(
-              controller: name,
-              decoration: const InputDecoration(
-                labelText: 'Nama kegiatan',
-                hintText: 'Contoh: menyiapkan makan malam',
-              ),
-              maxLength: 80,
-            ),
-            ListTile(
-              contentPadding: EdgeInsets.zero,
-              leading: const Icon(Icons.schedule, color: teal),
-              title: Text(
-                'Waktu ${time.hour.toString().padLeft(2, '0')}.${time.minute.toString().padLeft(2, '0')}',
-              ),
-              trailing: const Icon(Icons.edit_outlined),
-              onTap: () async {
-                final picked = await showTimePicker(
-                  context: ctx,
-                  initialTime: time,
-                );
-                if (picked != null) update(() => time = picked);
-              },
-            ),
-            const SizedBox(height: 20),
-            FilledButton(
-              onPressed: () {
-                if (name.text.trim().isEmpty) return;
-                setState(() {
-                  activities.add(
-                    CareActivity(
-                      time:
-                          '${time.hour.toString().padLeft(2, '0')}.${time.minute.toString().padLeft(2, '0')}',
-                      title: name.text.trim(),
-                      subtitle: 'Kegiatan pribadi',
-                      source: 'Ditambahkan pengguna',
-                      icon: Icons.event_note_outlined,
-                      tint: paleTeal,
-                      note: 'Bukan arahan medis.',
-                    ),
-                  );
-                  activities.sort((a, b) => a.time.compareTo(b.time));
-                  filter = 0;
-                });
-                Navigator.pop(ctx);
-              },
-              child: const Text('Simpan kegiatan'),
-            ),
-          ],
-        ),
-      ),
-    );
-    // The route can animate out after its future completes.
-    await Future<void>.delayed(const Duration(milliseconds: 350));
-    name.dispose();
-  }
-
-  Future<void> _reportIssue() async {
-    final note = TextEditingController();
-    await _sheet(
-      'Catat kendala',
-      (ctx) => Column(
-        children: [
-          TextField(
-            controller: note,
-            maxLines: 3,
-            maxLength: 240,
-            decoration: const InputDecoration(
-              labelText: 'Apa yang perlu diperhatikan?',
-              hintText: 'Contoh: bahan untuk makan siang habis',
-            ),
-          ),
-          const SizedBox(height: 20),
-          SizedBox(
-            width: double.infinity,
-            child: FilledButton(
-              onPressed: () {
-                if (note.text.trim().isEmpty) return;
-                setState(() => issues.add(note.text.trim()));
-                Navigator.pop(ctx);
-                toast('Kendala tersimpan di riwayat sesi ini.');
-              },
-              child: const Text('Simpan catatan'),
-            ),
-          ),
-        ],
-      ),
-    );
-    await Future<void>.delayed(const Duration(milliseconds: 350));
-    note.dispose();
-  }
-
-  Future<void> _editBudget() async {
-    final amount = TextEditingController(text: '$budget');
-    String? error;
-    await _sheet(
-      'Budget belanja harian',
-      (ctx) => StatefulBuilder(
-        builder: (ctx, update) => Column(
-          children: [
-            TextField(
-              controller: amount,
-              keyboardType: TextInputType.number,
-              decoration: InputDecoration(
-                labelText: 'Budget dalam rupiah',
-                prefixText: 'Rp ',
-                errorText: error,
-              ),
-            ),
-            const SizedBox(height: 20),
-            FilledButton(
-              onPressed: () {
-                final n = int.tryParse(amount.text.trim());
-                if (n == null || n <= 0) {
-                  update(() => error = 'Masukkan angka rupiah lebih dari nol.');
-                  return;
-                }
-                setState(() => budget = n);
-                Navigator.pop(ctx);
-              },
-              child: const Text('Simpan budget'),
-            ),
-          ],
-        ),
-      ),
-    );
-    await Future<void>.delayed(const Duration(milliseconds: 350));
-    amount.dispose();
-  }
-
-  void _recipe(DemoMeal m) => _sheet(
-    m.name,
-    (ctx) => Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text('${m.minutes} menit • 1 porsi • ${money(m.cost)} estimasi'),
-        const SizedBox(height: 20),
-        const Eyebrow('BAHAN'),
-        const SizedBox(height: 10),
-        Text(m.ingredients),
-        const SizedBox(height: 20),
-        const Eyebrow('CARA MENYIAPKAN'),
-        const SizedBox(height: 10),
-        Text(m.steps),
-        const SizedBox(height: 20),
-        const Notice(
-          text: 'Resep contoh untuk memperagakan tampilan. Kecocokan dengan kebutuhan individual belum dinilai.',
-          icon: Icons.info_outline,
-        ),
-      ],
-    ),
-  );
-
-  void _reviewSchedule() => _sheet(
-    'Tinjau Jadwal',
-    (ctx) => Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const Notice(
-          text: 'Jadwal ini adalah contoh, bukan hasil AI. Persetujuan hanya menambahkan kegiatan makan ke agenda sesi ini.',
-          icon: Icons.auto_awesome_outlined,
-        ),
-        const SizedBox(height: 16),
-        ...demoMeals.map(
-          (m) => ListTile(
-            contentPadding: EdgeInsets.zero,
-            leading: const Icon(Icons.restaurant_outlined, color: teal),
-            title: Text(m.name),
-            subtitle: Text('${m.time} • Usulan waktu, dapat ditinjau'),
-          ),
-        ),
-        const SizedBox(height: 16),
-        SizedBox(
-          width: double.infinity,
-          child: FilledButton(
-            onPressed: () {
-              if (!approved) {
-                setState(() {
-                  for (final m in demoMeals) {
-                    if (!activities.any((a) => a.id == m.id)) {
-                      activities.add(
-                        CareActivity(
-                          id: m.id,
-                          time: m.time,
-                          title: m.name,
-                          subtitle: m.slot,
-                          source: 'Menu contoh disetujui pengguna',
-                          icon: Icons.restaurant_outlined,
-                          tint: peach,
-                          note: 'Usulan waktu dari data demo.',
-                        ),
-                      );
-                    }
-                  }
-                  activities.sort((a, b) => a.time.compareTo(b.time));
-                  approved = true;
-                  logs.add(
-                    'Rencana menu contoh disetujui • ${widget.caregiver}',
-                  );
-                  page = 0;
-                  filter = 0;
-                });
-              }
-              Navigator.pop(ctx);
-              toast('Menu diterapkan ke agenda tanpa duplikasi.');
-            },
-            child: const Text('Setujui & masukkan ke agenda'),
-          ),
-        ),
-      ],
     ),
   );
 }

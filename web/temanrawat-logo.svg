@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-labelledby="title">
+  <title id="title">TemanRawat</title>
+  <rect width="64" height="64" rx="13" fill="#173D2B"/>
+  <circle cx="22" cy="16" r="4.5" fill="#F8F8F3"/>
+  <circle cx="42" cy="16" r="4.5" fill="#F1A08F"/>
+  <path fill="#F8F8F3" d="M11 35C11 28 16 24 22 24C28 24 32 28 36 33L31 39C27 34 25 32 22 32C19 32 18 34 18 37C18 42 24 46 32 50C20 49 11 43 11 35Z"/>
+  <path fill="#F1A08F" transform="translate(64) scale(-1 1)" d="M11 35C11 28 16 24 22 24C28 24 32 28 36 33L31 39C27 34 25 32 22 32C19 32 18 34 18 37C18 42 24 46 32 50C20 49 11 43 11 35Z"/>
+</svg>

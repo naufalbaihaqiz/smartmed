@@ -1,3 +1,5 @@
+param([switch]$Demo)
+
 $ErrorActionPreference = 'Stop'
 Set-Location $PSScriptRoot
 $flutterCommand = Get-Command flutter -ErrorAction SilentlyContinue
@@ -11,4 +13,6 @@ if (-not (Test-Path -LiteralPath $flutterPath)) {
 }
 & $flutterPath pub get
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-& $flutterPath run -d chrome --web-port 5173 --web-hostname 127.0.0.1
+$runArgs = @('run', '-d', 'chrome', '--web-port', '5173', '--web-hostname', '127.0.0.1')
+if ($Demo) { $runArgs += '--dart-define=TEMANRAWAT_WEB_DEMO=true' }
+& $flutterPath @runArgs

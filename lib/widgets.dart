@@ -2,39 +2,32 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
-import 'demo_data.dart';
+import 'care_mark.dart';
+import 'palette.dart';
 
 class Brand extends StatelessWidget {
   const Brand({super.key, this.compact = false});
   final bool compact;
   @override
-  Widget build(BuildContext context) => FittedBox(
-    fit: BoxFit.scaleDown,
-    alignment: Alignment.centerLeft,
-    child: Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Container(
-          width: compact ? 28 : 34,
-          height: compact ? 28 : 34,
-          decoration: BoxDecoration(
-            color: teal,
-            borderRadius: BorderRadius.circular(11),
-          ),
-          child: Icon(Icons.spa_rounded, color: paper, size: compact ? 17 : 21),
-        ),
-        const SizedBox(width: 9),
-        Text(
-          'temanrawat',
+  Widget build(BuildContext context) => Row(
+    mainAxisSize: MainAxisSize.min,
+    children: [
+      CareLogo(size: compact ? 36 : 42),
+      const SizedBox(width: 10),
+      Flexible(
+        child: Text(
+          'TemanRawat',
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
           style: TextStyle(
-            fontSize: compact ? 18 : 21,
+            fontSize: compact ? 18 : 22,
             color: ink,
-            fontWeight: FontWeight.w700,
-            letterSpacing: -.8,
+            fontWeight: FontWeight.w800,
+            letterSpacing: -.7,
           ),
         ),
-      ],
-    ),
+      ),
+    ],
   );
 }
 
@@ -59,11 +52,18 @@ class Surface extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Container(
     width: double.infinity,
-    padding: const EdgeInsets.all(23),
+    padding: const EdgeInsets.all(20),
     decoration: BoxDecoration(
       color: paper,
-      borderRadius: BorderRadius.circular(20),
+      borderRadius: BorderRadius.circular(17),
       border: Border.all(color: line),
+      boxShadow: const [
+        BoxShadow(
+          color: Color(0x08173D2B),
+          blurRadius: 16,
+          offset: Offset(0, 6),
+        ),
+      ],
     ),
     child: child,
   );
@@ -78,7 +78,7 @@ class BadgePill extends StatelessWidget {
     padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 6),
     decoration: BoxDecoration(
       color: color,
-      borderRadius: BorderRadius.circular(20),
+      borderRadius: BorderRadius.circular(7),
     ),
     child: Text(
       text,
@@ -101,7 +101,7 @@ class Notice extends StatelessWidget {
     padding: const EdgeInsets.all(17),
     decoration: BoxDecoration(
       color: paleTeal,
-      borderRadius: BorderRadius.circular(14),
+      borderRadius: BorderRadius.circular(10),
     ),
     child: Row(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -114,6 +114,50 @@ class Notice extends StatelessWidget {
             style: const TextStyle(color: teal, fontSize: 12, height: 1.7),
           ),
         ),
+      ],
+    ),
+  );
+}
+
+class IconTile extends StatelessWidget {
+  const IconTile(this.icon, {super.key, this.accent = false});
+
+  final IconData icon;
+  final bool accent;
+
+  @override
+  Widget build(BuildContext context) => Container(
+    width: 42,
+    height: 42,
+    decoration: BoxDecoration(
+      color: accent ? ink : paleTeal,
+      borderRadius: BorderRadius.circular(9),
+    ),
+    child: Icon(icon, size: 21, color: accent ? signal : teal),
+  );
+}
+
+class EmptyPanel extends StatelessWidget {
+  const EmptyPanel({
+    super.key,
+    required this.icon,
+    required this.title,
+    required this.description,
+  });
+
+  final IconData icon;
+  final String title, description;
+
+  @override
+  Widget build(BuildContext context) => Surface(
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        IconTile(icon),
+        const SizedBox(height: 12),
+        Text(title, style: Theme.of(context).textTheme.titleLarge),
+        const SizedBox(height: 6),
+        Text(description, style: const TextStyle(color: muted)),
       ],
     ),
   );

@@ -1,9 +1,74 @@
 import 'package:flutter/material.dart';
 
-import 'demo_data.dart';
+import 'palette.dart';
 
-class CareMark extends CustomPainter {
-  const CareMark();
+/// Two figures lean toward one another to represent shared care.
+class CareLogo extends StatelessWidget {
+  const CareLogo({super.key, this.size = 40});
+
+  final double size;
+
+  @override
+  Widget build(BuildContext context) => SizedBox.square(
+    dimension: size,
+    child: const CustomPaint(painter: _LogoPainter()),
+  );
+}
+
+class _LogoPainter extends CustomPainter {
+  const _LogoPainter();
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    canvas.save();
+    canvas.scale(size.width / 64, size.height / 64);
+    final paint = Paint()..color = ink;
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+        const Rect.fromLTWH(0, 0, 64, 64),
+        const Radius.circular(13),
+      ),
+      paint,
+    );
+
+    final figure = Path()
+      ..moveTo(11, 35)
+      ..cubicTo(11, 28, 16, 24, 22, 24)
+      ..cubicTo(28, 24, 32, 28, 36, 33)
+      ..lineTo(31, 39)
+      ..cubicTo(27, 34, 25, 32, 22, 32)
+      ..cubicTo(19, 32, 18, 34, 18, 37)
+      ..cubicTo(18, 42, 24, 46, 32, 50)
+      ..cubicTo(20, 49, 11, 43, 11, 35)
+      ..close();
+
+    canvas.drawCircle(const Offset(22, 16), 4.5, paint..color = cream);
+    canvas.drawCircle(const Offset(42, 16), 4.5, paint..color = signal);
+    canvas.drawPath(figure, paint..color = cream);
+    canvas.translate(64, 0);
+    canvas.scale(-1, 1);
+    canvas.drawPath(figure, paint..color = signal);
+    canvas.restore();
+  }
+
+  @override
+  bool shouldRepaint(_LogoPainter oldDelegate) => false;
+}
+
+class CareArtwork extends StatelessWidget {
+  const CareArtwork({super.key});
+
+  @override
+  Widget build(BuildContext context) => SizedBox(
+    height: MediaQuery.sizeOf(context).width < 400 ? 195 : 218,
+    child: const Center(
+      child: CustomPaint(size: Size(210, 175), painter: _FigmaCarePainter()),
+    ),
+  );
+}
+
+class _FigmaCarePainter extends CustomPainter {
+  const _FigmaCarePainter();
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -76,5 +141,5 @@ class CareMark extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(CareMark oldDelegate) => false;
+  bool shouldRepaint(_FigmaCarePainter oldDelegate) => false;
 }
