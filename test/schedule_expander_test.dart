@@ -309,7 +309,7 @@ void main() {
       // Jarak antar dosis 1 -> 2 dan 2 -> 3 konsisten sama rata
       final diff1 = amoxTimes[1].difference(amoxTimes[0]).inMinutes;
       final diff2 = amoxTimes[2].difference(amoxTimes[1]).inMinutes;
-      expect((diff1 - diff2).abs() <= 15, isTrue, reason: 'Jarak antar dosis harus konsisten!');
+      expect((diff1 - diff2).abs() <= 15, isTrue, reason: 'Jarak antar takaran harus konsisten!');
 
       // Pastikan jadwal makan malam paling lama 2 jam sebelum jam tidur (21:00 - 2 jam = 19:00)
       final dinnerReminder = result.firstWhere((r) => r['title'] == 'Waktu Makan Malam' && r['day_number'] == 1);

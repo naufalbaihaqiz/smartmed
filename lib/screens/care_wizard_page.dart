@@ -1036,8 +1036,8 @@ class _CareWizardPageState extends State<CareWizardPage> {
           TextFormField(
             controller: med.instruction,
             decoration: const InputDecoration(
-              labelText: 'Instruksi waktu minum',
-              hintText: 'Contoh: Pagi setelah sarapan (Opsional)',
+              labelText: 'Instruksi minum obat',
+              hintText: 'Contoh:Larutkan obat (Opsional)',
               helperText: 'Opsional (boleh dikosongkan)',
             ),
           ),
