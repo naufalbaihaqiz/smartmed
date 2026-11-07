@@ -28,9 +28,21 @@ int calculateMedicationTotalDoses(Json medication, {int maxDoses = 540}) {
   final rawQty = (medication['quantity'] as num?)?.toInt() ?? 0;
   if (rawQty <= 0) return 0;
 
+  final doseType = (medication['dose_type'] as String? ?? '').toUpperCase();
   final dosage = (medication['dosage'] as String? ?? '').trim();
+
+  // Khusus sediaan sirup bersendok, quantity diinput dalam satuan ml (misal 60 ml).
+  // Satuan dosis SIRUP_SPOON adalah sendok makan (15 ml), TEASPOON adalah sendok teh (5 ml).
+  if (doseType == 'SIRUP_SPOON') {
+    final doses = (rawQty / 15.0).ceil();
+    return doses.clamp(1, maxDoses);
+  } else if (doseType == 'TEASPOON') {
+    final doses = (rawQty / 5.0).ceil();
+    return doses.clamp(1, maxDoses);
+  }
+
   final discreteMatch = RegExp(
-    r'^(\d+(?:[.,]\d+)?)\s*(tablet|tab|kapsul|kaplet|pil|butir|bungkus|sachet)\b',
+    r'^(\d+(?:[.,]\d+)?)\s*(tablet|tab|kapsul|kaplet|pil|butir|bungkus|sachet|tetes|drop|oles|semprot|puff|biji|pcs)\b',
     caseSensitive: false,
   ).firstMatch(dosage);
 
@@ -237,7 +249,7 @@ List<Json> expandCareSchedule({
       singleDay.add({
         ...r,
         'title': mealTitle,
-        if (adjustedScheduleAt != null) 'schedule_at': adjustedScheduleAt,
+        'schedule_at': adjustedScheduleAt ?? r['schedule_at'],
         'status': (r['status'] as String?) ?? 'pending',
         'day_number': 1,
       });

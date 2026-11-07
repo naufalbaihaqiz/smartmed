@@ -22,8 +22,13 @@ Future<void> main() async {
       (defaultTargetPlatform == TargetPlatform.android ||
           defaultTargetPlatform == TargetPlatform.iOS ||
           defaultTargetPlatform == TargetPlatform.macOS)) {
-    await DatabaseHelper.instance.database;
-    persistentStore = SqliteCarePlanStore();
+    try {
+      await DatabaseHelper.instance.database;
+      persistentStore = SqliteCarePlanStore();
+    } catch (e) {
+      debugPrint('Database initialization warning: $e');
+      persistentStore = SqliteCarePlanStore();
+    }
   }
   runApp(
     TemanRawatApp(
@@ -312,13 +317,22 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   }
 
   Future<void> _loadPlans() async {
-    final loaded = await _store.loadAll();
-    if (!mounted) return;
-    setState(() {
-      _plans = List<PatientCarePlan>.from(loaded);
-      _loading = false;
-    });
-    await _notifications.syncPlans(_plans, now: _now());
+    try {
+      final loaded = await _store.loadAll();
+      if (!mounted) return;
+      setState(() {
+        _plans = List<PatientCarePlan>.from(loaded);
+        _loading = false;
+      });
+      await _notifications.syncPlans(_plans, now: _now());
+    } catch (e) {
+      debugPrint('Error loading care plans: $e');
+      if (!mounted) return;
+      setState(() {
+        _plans = [];
+        _loading = false;
+      });
+    }
   }
 
   Future<PatientCarePlan> _upsertPlan(PatientCarePlan plan) async {

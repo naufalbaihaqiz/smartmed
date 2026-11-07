@@ -793,7 +793,10 @@ class _PatientCareDetailPageState extends State<PatientCareDetailPage> {
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      '${meds[m]['frequency']} — ${meds[m]['instruction']}',
+                      (meds[m]['instruction'] is String &&
+                              (meds[m]['instruction'] as String).trim().isNotEmpty)
+                          ? '${meds[m]['frequency']} — ${meds[m]['instruction']}'
+                          : '${meds[m]['frequency'] ?? ''}',
                       style: const TextStyle(fontSize: 12.5, color: muted),
                     ),
                   ],

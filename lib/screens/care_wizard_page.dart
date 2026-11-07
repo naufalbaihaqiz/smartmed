@@ -242,7 +242,8 @@ class _CareWizardPageState extends State<CareWizardPage> {
               'instruction': _medications[i].instruction.text.trim().isEmpty
                   ? null
                   : _medications[i].instruction.text.trim(),
-              'quantity': int.parse(_medications[i].quantity.text.trim()),
+              'quantity':
+                  int.tryParse(_medications[i].quantity.text.trim()) ?? 10,
               'dose_type': _medications[i].doseType,
               'notes': _medications[i].notes.text.trim().isEmpty
                   ? null
@@ -305,6 +306,90 @@ class _CareWizardPageState extends State<CareWizardPage> {
     }
   }
 
+  List<Json> _buildLocalTemplateReminders({
+    required List<Json> prescriptions,
+    required Map<String, dynamic> rutinitas,
+  }) {
+    final now = _now();
+    final dateStr = DateFormat('yyyy-MM-dd').format(now);
+    final wakeMinutes = parseMinutesOfDay(
+      rutinitas['jam_bangun'] as String?,
+      fallback: 6 * 60,
+    );
+    final sleepMinutes = parseMinutesOfDay(
+      rutinitas['jam_tidur'] as String?,
+      fallback: 21 * 60,
+    );
+    final maxDinner = (sleepMinutes - 120).clamp(17 * 60, 21 * 60);
+
+    final breakfastTime = (wakeMinutes + 60).clamp(6 * 60, 10 * 60);
+    final lunchTime = (12 * 60 + 30).clamp(breakfastTime + 180, 15 * 60);
+    final dinnerTime = maxDinner;
+
+    String formatHM(int m) {
+      final h = (m ~/ 60).toString().padLeft(2, '0');
+      final min = (m % 60).toString().padLeft(2, '0');
+      return '${dateStr}T$h:$min:00';
+    }
+
+    final reminders = <Json>[
+      {
+        'prescription_id': null,
+        'title': 'Waktu Sarapan',
+        'schedule_at': formatHM(breakfastTime),
+        'status': 'pending',
+        'reminder_items': <Json>[],
+      },
+      {
+        'prescription_id': null,
+        'title': 'Waktu Makan Siang',
+        'schedule_at': formatHM(lunchTime),
+        'status': 'pending',
+        'reminder_items': <Json>[],
+      },
+      {
+        'prescription_id': null,
+        'title': 'Waktu Makan Malam',
+        'schedule_at': formatHM(dinnerTime),
+        'status': 'pending',
+        'reminder_items': <Json>[],
+      },
+    ];
+
+    for (final p in prescriptions) {
+      final pId = (p['id'] as num?)?.toInt();
+      final meds = (p['medications'] as List? ?? const [])
+          .whereType<Map>()
+          .toList();
+      for (final m in meds) {
+        final medId = (m['id'] as num?)?.toInt();
+        final name = (m['medicine_name'] as String? ?? 'Obat').trim();
+        final isAfter = m['isAfterEat'] == true;
+        final freq = parseDailyFrequency(m['frequency'] as String?, fallback: 1);
+
+        final targetMealMinutes = freq == 1
+            ? [breakfastTime]
+            : (freq == 2
+                ? [breakfastTime, dinnerTime]
+                : [breakfastTime, lunchTime, dinnerTime]);
+
+        for (final tm in targetMealMinutes) {
+          final medMinutes = isAfter ? tm + 30 : tm - 5;
+          reminders.add({
+            'prescription_id': pId,
+            'title': 'Minum Obat: $name',
+            'schedule_at': formatHM(medMinutes),
+            'status': 'pending',
+            'reminder_items': [
+              if (medId != null) {'medication_id': medId},
+            ],
+          });
+        }
+      }
+    }
+    return reminders;
+  }
+
   Future<void> _generateScheduleAndFinish() async {
     if (_generatedMeals.isEmpty || _loadingSchedule) return;
 
@@ -332,25 +417,34 @@ class _CareWizardPageState extends State<CareWizardPage> {
             )
           : assignPrescriptionIds(_buildPrescriptionsPayload());
 
-      final result = await widget.api.generateSchedule({
-        'menu_disetujui': approvedMeals,
-        'prescriptions': prescriptions,
-        'rutinitas': rutinitas,
-      }, version);
+      List<Json> templateReminders = [];
+      List<String> scheduleMessages = [];
+
+      try {
+        final result = await widget.api.generateSchedule({
+          'menu_disetujui': approvedMeals,
+          'prescriptions': prescriptions,
+          'rutinitas': rutinitas,
+        }, version);
+        templateReminders = result.reminders;
+        scheduleMessages = result.messages;
+      } catch (_) {
+        scheduleMessages = [
+          'Jadwal makan dan minum obat disusun otomatis menggunakan jadwal lokal.',
+        ];
+      }
+
+      if (templateReminders.isEmpty) {
+        templateReminders = _buildLocalTemplateReminders(
+          prescriptions: prescriptions,
+          rutinitas: rutinitas,
+        );
+      }
 
       if (!mounted || version != _inputVersion) return;
 
-      if (result.reminders.isEmpty) {
-        setState(() {
-          _apiError = result.messages.isNotEmpty
-              ? result.messages.join('\n')
-              : 'Server belum berhasil menyusun jadwal. Silakan coba lagi.';
-        });
-        return;
-      }
-
       final sortedReminders = expandCareSchedule(
-        templateReminders: result.reminders,
+        templateReminders: templateReminders,
         prescriptions: prescriptions,
         rutinitas: rutinitas,
         baseDate: _now(),
@@ -377,14 +471,11 @@ class _CareWizardPageState extends State<CareWizardPage> {
         rutinitas: rutinitas,
         meals: approvedMeals,
         reminders: sortedReminders,
-        aiNotes: [..._aiMessages, ...result.messages],
+        aiNotes: [..._aiMessages, ...scheduleMessages],
         createdAt: _now(),
       );
 
       Navigator.pop(context, plan);
-    } on CareApiException catch (e) {
-      if (!mounted) return;
-      setState(() => _apiError = e.message);
     } catch (e) {
       if (!mounted) return;
       setState(() => _apiError = 'Gagal membuat jadwal: $e');
@@ -945,8 +1036,8 @@ class _CareWizardPageState extends State<CareWizardPage> {
           TextFormField(
             controller: med.instruction,
             decoration: const InputDecoration(
-              labelText: 'Instruksi minum obat',
-              hintText: 'Contoh: Obat langsung ditelan dengan meminum air (Opsional)',
+              labelText: 'Instruksi waktu minum',
+              hintText: 'Contoh: Pagi setelah sarapan (Opsional)',
               helperText: 'Opsional (boleh dikosongkan)',
             ),
           ),

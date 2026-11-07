@@ -55,6 +55,7 @@ class DatabaseHelper {
       onConfigure: _onConfigure,
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
+      onOpen: _onOpen,
     );
 
     if (_customFactory != null) {
@@ -66,12 +67,35 @@ class DatabaseHelper {
       onConfigure: options.onConfigure,
       onCreate: options.onCreate,
       onUpgrade: options.onUpgrade,
+      onOpen: options.onOpen,
     );
   }
 
   /// Mengaktifkan Foreign Key constraint pada setiap koneksi SQLite.
   Future<void> _onConfigure(Database db) async {
     await db.execute('PRAGMA foreign_keys = ON');
+  }
+
+  /// Hook yang dipanggil setelah database berhasil dibuka penuh dan tidak terkunci.
+  Future<void> _onOpen(Database db) async {
+    try {
+      final cols = await db.rawQuery(
+        'PRAGMA table_info(${DatabaseTables.medications})',
+      );
+      final names = cols.map((c) => c['name'] as String).toSet();
+      if (!names.contains('dose_type')) {
+        await db.execute(
+          'ALTER TABLE ${DatabaseTables.medications} ADD COLUMN dose_type TEXT',
+        );
+      }
+      if (!names.contains('isAfterEat') && !names.contains('is_after_eat')) {
+        await db.execute(
+          'ALTER TABLE ${DatabaseTables.medications} ADD COLUMN isAfterEat INTEGER NOT NULL DEFAULT 0',
+        );
+      }
+    } catch (_) {
+      // Abaikan jika tabel belum terbuat
+    }
   }
 
   /// Membuat kesembilan tabel dan index saat aplikasi pertama kali dijalankan di HP.
@@ -119,10 +143,28 @@ class DatabaseHelper {
       );
     }
     if (oldVersion < 6) {
-      await db.execute(
-        'ALTER TABLE ${DatabaseTables.medications} '
-        'ADD COLUMN dose_type TEXT',
+      final cols = await db.rawQuery(
+        'PRAGMA table_info(${DatabaseTables.medications})',
       );
+      final names = cols.map((c) => c['name'] as String).toSet();
+      if (!names.contains('dose_type')) {
+        await db.execute(
+          'ALTER TABLE ${DatabaseTables.medications} '
+          'ADD COLUMN dose_type TEXT',
+        );
+      }
+    }
+    if (oldVersion < 7) {
+      final cols = await db.rawQuery(
+        'PRAGMA table_info(${DatabaseTables.medications})',
+      );
+      final names = cols.map((c) => c['name'] as String).toSet();
+      if (!names.contains('isAfterEat') && !names.contains('is_after_eat')) {
+        await db.execute(
+          'ALTER TABLE ${DatabaseTables.medications} '
+          'ADD COLUMN isAfterEat INTEGER NOT NULL DEFAULT 0',
+        );
+      }
     }
   }
 

@@ -3,7 +3,7 @@ class DatabaseTables {
   DatabaseTables._();
 
   static const String databaseName = 'smartmed_local.db';
-  static const int databaseVersion = 6;
+  static const int databaseVersion = 7;
 
   // Nama-nama tabel
   static const String healthCondition = 'health_condition';

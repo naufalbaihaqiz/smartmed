@@ -413,6 +413,68 @@ class SqliteCarePlanStore extends CarePlanStore {
     });
   }
 
+  static double? _asDouble(dynamic value) {
+    if (value == null) return null;
+    if (value is num) return value.toDouble();
+    if (value is String) {
+      final clean = value.replaceAll(RegExp(r'[^0-9.]'), '');
+      return double.tryParse(clean);
+    }
+    return null;
+  }
+
+  static int? _asInt(dynamic value) {
+    if (value == null) return null;
+    if (value is num) return value.toInt();
+    if (value is String) {
+      final clean = value.replaceAll(RegExp(r'[^0-9]'), '');
+      return int.tryParse(clean);
+    }
+    return null;
+  }
+
+  Future<int> _insertMedicationSafe(
+    DatabaseExecutor txn,
+    Map<String, dynamic> row,
+  ) async {
+    final columnsInfo = await txn.rawQuery(
+      'PRAGMA table_info(${DatabaseTables.medications})',
+    );
+    final existingColumns =
+        columnsInfo.map((c) => c['name'] as String).toSet();
+
+    if (!existingColumns.contains('dose_type')) {
+      try {
+        await txn.execute(
+          'ALTER TABLE ${DatabaseTables.medications} ADD COLUMN dose_type TEXT',
+        );
+        existingColumns.add('dose_type');
+      } catch (_) {}
+    }
+
+    if (!existingColumns.contains('isAfterEat') &&
+        !existingColumns.contains('is_after_eat')) {
+      try {
+        await txn.execute(
+          'ALTER TABLE ${DatabaseTables.medications} ADD COLUMN isAfterEat INTEGER NOT NULL DEFAULT 0',
+        );
+        existingColumns.add('isAfterEat');
+      } catch (_) {}
+    }
+
+    final safeRow = <String, dynamic>{};
+    for (final entry in row.entries) {
+      if (existingColumns.contains(entry.key)) {
+        safeRow[entry.key] = entry.value;
+      } else if (entry.key == 'isAfterEat' &&
+          existingColumns.contains('is_after_eat')) {
+        safeRow['is_after_eat'] = entry.value;
+      }
+    }
+
+    return await txn.insert(DatabaseTables.medications, safeRow);
+  }
+
   Future<List<Json>> _insertMealsInTxn(
     DatabaseExecutor txn,
     List<Json> meals,
@@ -437,8 +499,8 @@ class SqliteCarePlanStore extends CarePlanStore {
       final recipeId = await txn.insert(DatabaseTables.recipes, {
         'recipe_name': meal['recipe_name'] as String,
         'description': meal['description'] as String?,
-        'servings': (meal['servings'] as num?)?.toInt(),
-        'cooking_time': (meal['cooking_time'] as num?)?.toInt(),
+        'servings': _asInt(meal['servings']),
+        'cooking_time': _asInt(meal['cooking_time']),
         'instructions': meal['instructions'] as String?,
         'source': meal['source'] as String?,
         'created_at': nowIso,
@@ -466,21 +528,26 @@ class SqliteCarePlanStore extends CarePlanStore {
       Json? savedNutrition;
       if (meal['nutrition'] is Map) {
         final nut = Map<String, dynamic>.from(meal['nutrition'] as Map);
+        final cal = _asDouble(nut['calories']) ?? 0.0;
+        final pro = _asDouble(nut['protein']) ?? 0.0;
+        final carb = _asDouble(nut['carbohydrates']) ?? 0.0;
+        final fat = _asDouble(nut['fat']) ?? 0.0;
+
         final nutId = await txn.insert(DatabaseTables.recipeNutrition, {
           'recipe_id': recipeId,
-          'calories': (nut['calories'] as num?)?.toDouble(),
-          'protein': (nut['protein'] as num?)?.toDouble(),
-          'carbohydrates': (nut['carbohydrates'] as num?)?.toDouble(),
-          'fat': (nut['fat'] as num?)?.toDouble(),
+          'calories': cal,
+          'protein': pro,
+          'carbohydrates': carb,
+          'fat': fat,
           'created_at': nowIso,
         });
         savedNutrition = {
           'id': nutId,
           'recipe_id': recipeId,
-          'calories': (nut['calories'] as num).toDouble(),
-          'protein': (nut['protein'] as num).toDouble(),
-          'carbohydrates': (nut['carbohydrates'] as num).toDouble(),
-          'fat': (nut['fat'] as num).toDouble(),
+          'calories': cal,
+          'protein': pro,
+          'carbohydrates': carb,
+          'fat': fat,
         };
       }
 
@@ -537,7 +604,20 @@ class SqliteCarePlanStore extends CarePlanStore {
           .toList();
       final savedMeds = <Json>[];
       for (final m in rawMeds) {
-        final existingMedId = (m['id'] as num?)?.toInt();
+        final existingMedId = _asInt(m['id']);
+        final medValues = <String, dynamic>{
+          'prescription_id': prescriptionId,
+          'medicine_name': m['medicine_name'] as String? ?? 'Obat',
+          'dosage': m['dosage'] as String?,
+          'frequency': m['frequency'] as String?,
+          'instruction': m['instruction'] as String?,
+          'quantity': _asInt(m['quantity']),
+          'notes': m['notes'] as String?,
+          'isAfterEat': m['isAfterEat'] == true ? 1 : 0,
+          'dose_type': (m['dose_type'] as String?) ?? 'TABLET',
+          'created_at': nowIso,
+        };
+
         int medId;
         if (existingMedId != null) {
           final existingMedRows = await txn.query(
@@ -549,38 +629,17 @@ class SqliteCarePlanStore extends CarePlanStore {
           if (existingMedRows.isNotEmpty) {
             medId = existingMedId;
           } else {
-            medId = await txn.insert(DatabaseTables.medications, {
-              'id': existingMedId,
-              'prescription_id': prescriptionId,
-              'medicine_name': m['medicine_name'] as String,
-              'dosage': m['dosage'] as String?,
-              'frequency': m['frequency'] as String?,
-              'instruction': m['instruction'] as String?,
-              'quantity': (m['quantity'] as num?)?.toInt(),
-              'notes': m['notes'] as String?,
-              'isAfterEat': m['isAfterEat'] == true ? 1 : 0,
-              'dose_type': (m['dose_type'] as String?) ?? 'TABLET',
-              'created_at': nowIso,
-            });
+            medValues['id'] = existingMedId;
+            medId = await _insertMedicationSafe(txn, medValues);
           }
         } else {
-          medId = await txn.insert(DatabaseTables.medications, {
-            'prescription_id': prescriptionId,
-            'medicine_name': m['medicine_name'] as String,
-            'dosage': m['dosage'] as String?,
-            'frequency': m['frequency'] as String?,
-            'instruction': m['instruction'] as String?,
-            'quantity': (m['quantity'] as num?)?.toInt(),
-            'notes': m['notes'] as String?,
-            'isAfterEat': m['isAfterEat'] == true ? 1 : 0,
-            'dose_type': (m['dose_type'] as String?) ?? 'TABLET',
-            'created_at': nowIso,
-          });
+          medId = await _insertMedicationSafe(txn, medValues);
         }
         savedMeds.add({
           ...m,
           'id': medId,
           'prescription_id': prescriptionId,
+          'dose_type': (m['dose_type'] as String?) ?? 'TABLET',
         });
       }
 
