@@ -9,12 +9,33 @@ double? parseFlexibleDouble(String? input) =>
     double.tryParse((input ?? '').trim().replaceAll(',', '.'));
 
 double? parseRupiah(String? input) {
-  final raw = (input ?? '').trim().replaceAll(RegExp(r'[Rp\s]'), '');
+  var raw = (input ?? '')
+      .trim()
+      .toLowerCase()
+      .replaceAll(RegExp(r'\s+'), '')
+      .replaceAll(RegExp(r'^(?:rp\.?|idr)\s*'), '');
   if (raw.isEmpty) return null;
-  if (RegExp(r'^\d{1,3}(\.\d{3})+(,\d+)?$').hasMatch(raw)) {
-    return double.tryParse(raw.replaceAll('.', '').replaceAll(',', '.'));
+
+  // Cek satuan seperti: jt, juta, mio, k, rb, ribu
+  double multiplier = 1.0;
+  if (RegExp(r'(?:juta|jt|mio)$').hasMatch(raw)) {
+    multiplier = 1000000.0;
+    raw = raw.replaceAll(RegExp(r'(?:juta|jt|mio)$'), '');
+  } else if (RegExp(r'(?:k|rb|ribu)$').hasMatch(raw)) {
+    multiplier = 1000.0;
+    raw = raw.replaceAll(RegExp(r'(?:k|rb|ribu)$'), '');
   }
-  return double.tryParse(raw.replaceAll(',', '.'));
+
+  // Format angka ribuan Indonesia: 1.000.000 atau 1.000.000,50
+  if (RegExp(r'^\d{1,3}(\.\d{3})+(,\d+)?$').hasMatch(raw)) {
+    final parsed = double.tryParse(raw.replaceAll('.', '').replaceAll(',', '.'));
+    return parsed != null ? parsed * multiplier : null;
+  }
+
+  // Format angka biasa: 500, 1000000, 1.5 (jika ada multiplier misal 1.5jt)
+  final numOnly = raw.replaceAll(',', '.');
+  final parsed = double.tryParse(numOnly);
+  return parsed != null ? parsed * multiplier : null;
 }
 
 const double kMinimumDailyBudget = 10000.0;

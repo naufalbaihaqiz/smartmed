@@ -367,8 +367,13 @@ class _CareWizardPageState extends State<CareWizardPage> {
         final isAfter = m['isAfterEat'] == true;
         final freq = parseDailyFrequency(m['frequency'] as String?, fallback: 1);
 
+        final session = detectInstructionSession(
+          '${m['instruction'] ?? ''} ${m['notes'] ?? ''}',
+        );
         final targetMealMinutes = freq == 1
-            ? [breakfastTime]
+            ? (session == 'malam'
+                ? [dinnerTime]
+                : (session == 'siang' ? [lunchTime] : [breakfastTime]))
             : (freq == 2
                 ? [breakfastTime, dinnerTime]
                 : [breakfastTime, lunchTime, dinnerTime]);
@@ -1034,11 +1039,10 @@ class _CareWizardPageState extends State<CareWizardPage> {
           ),
           const SizedBox(height: 12),
           TextFormField(
-            controller: med.instruction,
+            controller: med.notes,
             decoration: const InputDecoration(
-              labelText: 'Instruksi minum obat',
-              hintText: 'Contoh:Larutkan obat (Opsional)',
-              helperText: 'Opsional (boleh dikosongkan)',
+              labelText: 'Catatan obat (opsional)',
+              hintText: 'Contoh: Jangan diminum bersama susu',
             ),
           ),
           const SizedBox(height: 12),
@@ -1080,10 +1084,11 @@ class _CareWizardPageState extends State<CareWizardPage> {
           ),
           const SizedBox(height: 12),
           TextFormField(
-            controller: med.notes,
+            controller: med.instruction,
             decoration: const InputDecoration(
-              labelText: 'Catatan obat (opsional)',
-              hintText: 'Contoh: Jangan diminum bersama susu',
+              labelText: 'Instruksi minum obat',
+              hintText: 'Contoh: Larutkan obat / Diminum malam hari (opsional)',
+              helperText: 'Opsional (boleh dikosongkan)',
             ),
           ),
         ],

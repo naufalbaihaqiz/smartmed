@@ -414,7 +414,7 @@ void main() {
       await enterFieldAt(tester, 'Frekuensi minum', '1x sehari', index: 0);
       await enterFieldAt(
         tester,
-        'Instruksi waktu minum',
+        'Instruksi minum obat',
         'Pagi setelah sarapan',
         index: 0,
       );
@@ -427,7 +427,7 @@ void main() {
       await enterFieldAt(tester, 'Frekuensi minum', '3x sehari', index: 1);
       await enterFieldAt(
         tester,
-        'Instruksi waktu minum',
+        'Instruksi minum obat',
         'Sesudah makan',
         index: 1,
       );

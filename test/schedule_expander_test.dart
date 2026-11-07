@@ -373,5 +373,79 @@ void main() {
       });
       expect(kapsul, 5);
     });
+
+    for (final scenario in [
+      (instruction: 'obat diminum hanya pada siang hari', hour: 13),
+      (instruction: 'obat dimakan pada saat malam hari', hour: 19),
+    ]) {
+      test('Obat 1x sehari "${scenario.instruction}": hanya 1 dosis per hari di sesi itu & 3 waktu makan tetap ada', () {
+        // Server hanya mengembalikan 1 template makan (siang) + obat di jam yang salah.
+        final templates = [
+          {
+            'title': 'Waktu Sarapan',
+            'schedule_at': '2026-11-08T07:00:00',
+          },
+          {
+            'title': 'Waktu Makan Siang',
+            'schedule_at': '2026-11-08T12:30:00',
+          },
+          {
+            'title': 'Waktu Makan Malam',
+            'schedule_at': '2026-11-08T19:00:00',
+          },
+          {
+            'title': 'Minum Obat: Amlodipine',
+            'schedule_at': '2026-11-08T07:30:00',
+            'prescription_id': 1,
+            'reminder_items': [{'medication_id': 101}],
+          },
+        ];
+        final prescriptions = [
+          {
+            'id': 1,
+            'start_at': '08:00',
+            'medications': [
+              {
+                'id': 101,
+                'medicine_name': 'Amlodipine',
+                'frequency': '1x sehari',
+                'instruction': scenario.instruction,
+                'quantity': 3,
+                'dosage': '1 tablet',
+                'isAfterEat': true,
+              },
+            ],
+          },
+        ];
+
+        final result = expandCareSchedule(
+          baseDate: DateTime(2026, 11, 8),
+          templateReminders: templates,
+          prescriptions: prescriptions,
+          rutinitas: {'jam_bangun': '06:00', 'jam_tidur': '22:00'},
+        );
+
+        for (var day = 1; day <= 3; day++) {
+          final dayItems = result.where((r) => r['day_number'] == day).toList();
+          final mealTitles = dayItems
+              .where((r) => (r['reminder_items'] as List).isEmpty)
+              .map((r) => r['title'])
+              .toSet();
+          expect(
+            mealTitles,
+            {'Waktu Sarapan', 'Waktu Makan Siang', 'Waktu Makan Malam'},
+            reason: 'Hari $day harus punya sarapan, makan siang, dan makan malam',
+          );
+          final meds = dayItems
+              .where((r) => (r['reminder_items'] as List).isNotEmpty)
+              .toList();
+          expect(meds.length, 1, reason: 'Hari $day hanya 1 dosis obat');
+          expect(
+            DateTime.parse(meds.first['schedule_at'] as String).hour,
+            scenario.hour,
+          );
+        }
+      });
+    }
   });
 }
