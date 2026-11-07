@@ -42,6 +42,15 @@ Future<void> chooseDate(WidgetTester tester, String label, String value) async {
   await tapText(tester, 'Pilih tanggal');
 }
 
+Future<void> completeAndSaveAgenda(WidgetTester tester) async {
+  var pending = find.text('Catat sebagai selesai');
+  while (pending.evaluate().isNotEmpty) {
+    await tapWidget(tester, pending.first);
+    pending = find.text('Catat sebagai selesai');
+  }
+  await tapText(tester, 'Selesai dan simpan semua ke riwayat');
+}
+
 void usePhone(WidgetTester tester) {
   tester.view.physicalSize = const Size(360, 800);
   tester.view.devicePixelRatio = 1;
@@ -117,7 +126,7 @@ void main() {
       expect(find.text('Tinjau jadwal'), findsOneWidget);
       await tapText(tester, 'Setujui dan masukkan ke agenda');
       expect(find.text('Agenda Perawatan'), findsOneWidget);
-      await tapWidget(tester, find.text('Catat sebagai selesai').at(1));
+      await completeAndSaveAgenda(tester);
       await tapText(tester, 'Riwayat');
       expect(find.text('Cek jadwal obat'), findsOneWidget);
       await tapText(tester, 'Profil');
@@ -278,7 +287,7 @@ void main() {
         findsOneWidget,
       );
       await tapText(tester, 'Setujui dan masukkan ke agenda');
-      await tapText(tester, 'Catat sebagai selesai');
+      await completeAndSaveAgenda(tester);
       await tapText(tester, 'Riwayat');
       expect(find.text('Pengingat dari server uji'), findsOneWidget);
       expect(requests, 2);

@@ -167,7 +167,7 @@ class HomeShell extends StatefulWidget {
 
 class _HomeShellState extends State<HomeShell> {
   late final CareApi api = widget.api ?? widget.demo?.createApi() ?? CareApi();
-  int page = 3;
+  int page = 0;
   int version = 1;
   int nextPrescriptionId = 1;
   int nextMedicationId = 1;
@@ -180,7 +180,11 @@ class _HomeShellState extends State<HomeShell> {
   List<Json> meals = [];
   List<Json> scheduleDraft = [];
   List<Json> agenda = [];
-  final history = <({String title, String status, DateTime recordedAt})>[];
+  final history =
+      <
+        ({String title, String status, DateTime recordedAt, String agendaKey})
+      >[];
+  bool agendaArchived = false;
 
   @override
   void initState() {
@@ -202,6 +206,7 @@ class _HomeShellState extends State<HomeShell> {
       title: agenda.first['title'] as String,
       status: 'Selesai',
       recordedAt: DateTime.parse(agenda.first['schedule_at'] as String),
+      agendaKey: _agendaKey(agenda.first),
     ));
   }
 
@@ -441,6 +446,37 @@ class _HomeShellState extends State<HomeShell> {
   String _reminderTime(Json reminder) =>
       _dateTime(DateTime.parse(reminder['schedule_at'] as String));
 
+  String _agendaKey(Json reminder) =>
+      '${reminder['title']}|${DateTime.parse(reminder['schedule_at'] as String).toIso8601String()}';
+
+  void _finishAgenda() {
+    if (agenda.isEmpty ||
+        agenda.any((reminder) => reminder['status'] != 'completed')) {
+      return;
+    }
+    final recordedAt = DateTime.now();
+    final existingKeys = history.map((item) => item.agendaKey).toSet();
+    final finishedActivities =
+        <
+          ({String title, String status, DateTime recordedAt, String agendaKey})
+        >[
+          for (final reminder in agenda)
+            if (!existingKeys.contains(_agendaKey(reminder)))
+              (
+                title: reminder['title'] as String,
+                status: 'Selesai',
+                recordedAt: recordedAt,
+                agendaKey: _agendaKey(reminder),
+              ),
+        ];
+    setState(() {
+      history.insertAll(0, finishedActivities);
+      agenda = [];
+      agendaArchived = true;
+      page = 2;
+    });
+  }
+
   List<String> _medicationInstructions(Json reminder) {
     final items = reminder['reminder_items'] as List? ?? [];
     final ids = items.map((item) => item['medication_id']).toSet();
@@ -667,6 +703,38 @@ class _HomeShellState extends State<HomeShell> {
           label: const Text('Buat draf menu'),
         ),
       ],
+      const SizedBox(height: 16),
+      Row(
+        children: [
+          Expanded(
+            child: Text(
+              'Resep obat',
+              style: Theme.of(context).textTheme.titleLarge,
+            ),
+          ),
+          IconButton.filledTonal(
+            onPressed: busy ? null : _addPrescription,
+            tooltip: 'Tambah resep',
+            icon: const Icon(Icons.add_rounded),
+          ),
+        ],
+      ),
+      if (prescriptions.isEmpty)
+        const Notice(
+          text: 'Belum ada resep yang dicatat.',
+          icon: Icons.medication_outlined,
+        ),
+      for (final prescription in prescriptions)
+        ListTile(
+          contentPadding: EdgeInsets.zero,
+          leading: const IconTile(Icons.medication_outlined, accent: true),
+          title: Text('Resep ${prescription['prescription_date']}'),
+          subtitle: Text(
+            (prescription['medications'] as List<Json>)
+                .map((item) => item['medicine_name'])
+                .join(', '),
+          ),
+        ),
       if (busy) const LinearProgressIndicator(),
       if (message != null && message!.isNotEmpty) ...[
         const SizedBox(height: 12),
@@ -726,6 +794,7 @@ class _HomeShellState extends State<HomeShell> {
                                 DateTime.parse(b['schedule_at'] as String),
                               ),
                         );
+                  agendaArchived = false;
                   scheduleDraft = [];
                   page = 0;
                 }),
@@ -750,11 +819,14 @@ class _HomeShellState extends State<HomeShell> {
         Text('Agenda hari ini', style: Theme.of(context).textTheme.titleLarge),
       ],
       if (agenda.isEmpty)
-        const EmptyPanel(
-          title: 'Belum ada jadwal yang disetujui.',
-          icon: Icons.event_outlined,
-          description:
-              'Jadwal yang kamu setujui di halaman Menu akan tampil di sini.',
+        EmptyPanel(
+          title: agendaArchived
+              ? 'Semua kegiatan hari ini selesai.'
+              : 'Belum ada jadwal yang disetujui.',
+          icon: agendaArchived ? Icons.task_alt_rounded : Icons.event_outlined,
+          description: agendaArchived
+              ? 'Semua kegiatan sudah disimpan ke Riwayat.'
+              : 'Jadwal yang kamu setujui di halaman Menu akan tampil di sini.',
         ),
       for (final reminder in agenda) ...[
         const SizedBox(height: 12),
@@ -798,18 +870,21 @@ class _HomeShellState extends State<HomeShell> {
                 const BadgePill('Selesai')
               else
                 TextButton(
-                  onPressed: () => setState(() {
-                    reminder['status'] = 'completed';
-                    history.insert(0, (
-                      title: reminder['title'] as String,
-                      status: 'Selesai',
-                      recordedAt: DateTime.now(),
-                    ));
-                  }),
+                  onPressed: () =>
+                      setState(() => reminder['status'] = 'completed'),
                   child: const Text('Catat sebagai selesai'),
                 ),
             ],
           ),
+        ),
+      ],
+      if (agenda.isNotEmpty &&
+          agenda.every((reminder) => reminder['status'] == 'completed')) ...[
+        const SizedBox(height: 16),
+        FilledButton.icon(
+          onPressed: _finishAgenda,
+          icon: const Icon(Icons.done_all_rounded),
+          label: const Text('Selesai dan simpan semua ke riwayat'),
         ),
       ],
     ],
