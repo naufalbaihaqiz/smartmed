@@ -5,11 +5,7 @@ import 'database_tables.dart';
 
 /// Singleton helper untuk mengelola koneksi database SQLite lokal di perangkat.
 class DatabaseHelper {
-  DatabaseHelper._internal({
-    DatabaseFactory? customFactory,
-    String? customDbPath,
-  }) : _customFactory = customFactory,
-       _customDbPath = customDbPath;
+  DatabaseHelper._internal([this._customFactory, this._customDbPath]);
 
   /// Instance utama untuk digunakan di seluruh aplikasi.
   static final DatabaseHelper instance = DatabaseHelper._internal();
@@ -19,10 +15,7 @@ class DatabaseHelper {
     DatabaseFactory? customFactory,
     String? customDbPath,
   }) {
-    return DatabaseHelper._internal(
-      customFactory: customFactory,
-      customDbPath: customDbPath,
-    );
+    return DatabaseHelper._internal(customFactory, customDbPath);
   }
 
   final DatabaseFactory? _customFactory;
